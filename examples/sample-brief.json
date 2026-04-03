@@ -1,0 +1,13 @@
+{
+  "title": "AI 도입했더니 오히려 야근이 늘어난 이유",
+  "topic": "AI adoption and longer work hours",
+  "intent": "info",
+  "tone": "serious",
+  "targetDuration": 36,
+  "platform": "youtube",
+  "language": "ko",
+  "executionMode": "local",
+  "audience": "AI를 도입했지만 업무 효율이 체감되지 않는 직장인",
+  "thesis": "AI는 속도를 늘리지만, 판단 권한을 재설계하지 않으면 오히려 병목을 더 만든다.",
+  "script": "AI 도입했더니 오히려 야근이 늘어난 이유.\nAI가 더 빨리 만드는 건 맞지만, 그 이후 검토와 승인과 수정 루프가 더 길어졌습니다.\n사람이 모든 결과를 다시 읽고 판단하는 구조에서는 자동화가 아니라 병목 증폭이 됩니다.\n문제는 생성 속도가 아니라 누가 언제 판단하는지 재설계하지 않았다는 데 있습니다."
+}

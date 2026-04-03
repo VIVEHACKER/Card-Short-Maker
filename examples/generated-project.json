@@ -1,0 +1,356 @@
+{
+  "id": "cli-1775193320075",
+  "channel": "cli",
+  "preset": "CLI",
+  "accent": "#f2b36f",
+  "runtime": {
+    "mode": "local",
+    "costModel": "free-local",
+    "ffmpeg": "bundled",
+    "scriptProvider": "Local template / local model",
+    "qaProvider": "Local rules engine",
+    "ttsProvider": "Local TTS",
+    "mediaProvider": "Local media folder / manual import",
+    "install": [
+      "앱 내장 FFmpeg 사용",
+      "추가 API 키 없이 실행 가능",
+      "로컬 저장공간과 미디어 폴더 접근 필요"
+    ]
+  },
+  "brief": {
+    "id": "brief-1775193320075",
+    "title": "AI 도입했더니 오히려 야근이 늘어난 이유",
+    "topic": "AI adoption and longer work hours",
+    "intent": "info",
+    "tone": "serious",
+    "targetDuration": 36,
+    "platform": "youtube",
+    "language": "ko",
+    "audience": "AI를 도입했지만 업무 효율이 체감되지 않는 직장인",
+    "thesis": "AI는 속도를 늘리지만, 판단 권한을 재설계하지 않으면 오히려 병목을 더 만든다."
+  },
+  "script": "AI 도입했더니 오히려 야근이 늘어난 이유.\nAI가 더 빨리 만드는 건 맞지만, 그 이후 검토와 승인과 수정 루프가 더 길어졌습니다.\n사람이 모든 결과를 다시 읽고 판단하는 구조에서는 자동화가 아니라 병목 증폭이 됩니다.\n문제는 생성 속도가 아니라 누가 언제 판단하는지 재설계하지 않았다는 데 있습니다.",
+  "scenes": [
+    {
+      "id": "scene-1",
+      "index": 1,
+      "text": "AI 도입했더니 오히려 야근이 늘어난 이유.?",
+      "duration": 3.8,
+      "role": "hook",
+      "media": {
+        "type": "image",
+        "query": "ai 도입했더니 오히려 야근이 documentary",
+        "style": "high-contrast editorial frame",
+        "tags": [
+          "ai",
+          "도입했더니",
+          "오히려",
+          "야근이",
+          "늘어난"
+        ],
+        "sourceHint": "editorial still"
+      },
+      "subtitles": {
+        "id": "subtitle-ai-도입했더니-오히려-야",
+        "lines": [
+          "AI 도입했더니 오히려",
+          "야근이 늘어난 이유"
+        ],
+        "emphasis": [
+          "ai",
+          "도입했더니"
+        ]
+      },
+      "voice": {
+        "provider": "TTS placeholder",
+        "speed": 1.04,
+        "emotion": "serious"
+      },
+      "notes": "첫 3초 안에 문제의식이나 반전을 드러내세요."
+    },
+    {
+      "id": "scene-2",
+      "index": 2,
+      "text": "AI가 더 빨리 만드는 건 맞지만, 그 이후 검토와 승인과 수정 루프가 더 길어졌습니다.",
+      "duration": 4.6,
+      "role": "build",
+      "media": {
+        "type": "gif",
+        "query": "ai 빨리 만드는 맞지만 documentary",
+        "style": "contextual visual evidence",
+        "tags": [
+          "ai",
+          "빨리",
+          "만드는",
+          "맞지만",
+          "이후"
+        ],
+        "sourceHint": "giphy / stock mix"
+      },
+      "subtitles": {
+        "id": "subtitle-ai가-더-빨리-만드는-건",
+        "lines": [
+          "AI가 더 빨리 만드는 건",
+          "맞지만, 그 이후 검토와"
+        ],
+        "emphasis": [
+          "ai",
+          "빨리"
+        ]
+      },
+      "voice": {
+        "provider": "TTS placeholder",
+        "speed": 0.98,
+        "emotion": "serious"
+      },
+      "notes": "정보를 한 번에 하나씩만 전달해야 이탈이 줄어듭니다."
+    },
+    {
+      "id": "scene-3",
+      "index": 3,
+      "text": "사람이 모든 결과를 다시 읽고 판단하는 구조에서는 자동화가 아니라 병목 증폭이 됩니다.",
+      "duration": 4.6,
+      "role": "build",
+      "media": {
+        "type": "gif",
+        "query": "사람이 모든 결과를 다시 documentary",
+        "style": "contextual visual evidence",
+        "tags": [
+          "사람이",
+          "모든",
+          "결과를",
+          "다시",
+          "읽고"
+        ],
+        "sourceHint": "giphy / stock mix"
+      },
+      "subtitles": {
+        "id": "subtitle-사람이-모든-결과를-다시-",
+        "lines": [
+          "사람이 모든 결과를 다시 읽고",
+          "판단하는 구조에서는"
+        ],
+        "emphasis": [
+          "사람이",
+          "모든"
+        ]
+      },
+      "voice": {
+        "provider": "TTS placeholder",
+        "speed": 0.98,
+        "emotion": "serious"
+      },
+      "notes": "정보를 한 번에 하나씩만 전달해야 이탈이 줄어듭니다."
+    },
+    {
+      "id": "scene-4",
+      "index": 4,
+      "text": "문제는 생성 속도가 아니라 누가 언제 판단하는지 재설계하지 않았다는 데 있습니다.",
+      "duration": 4.6,
+      "role": "build",
+      "media": {
+        "type": "gif",
+        "query": "문제는 생성 속도가 아니라 documentary",
+        "style": "contextual visual evidence",
+        "tags": [
+          "문제는",
+          "생성",
+          "속도가",
+          "아니라",
+          "누가"
+        ],
+        "sourceHint": "giphy / stock mix"
+      },
+      "subtitles": {
+        "id": "subtitle-문제는-생성-속도가-아니라",
+        "lines": [
+          "문제는 생성 속도가 아니라",
+          "누가 언제 판단하는지"
+        ],
+        "emphasis": [
+          "문제는",
+          "생성"
+        ]
+      },
+      "voice": {
+        "provider": "TTS placeholder",
+        "speed": 0.98,
+        "emotion": "serious"
+      },
+      "notes": "정보를 한 번에 하나씩만 전달해야 이탈이 줄어듭니다."
+    },
+    {
+      "id": "scene-5",
+      "index": 5,
+      "text": "문제는 생성 속도가 아니라 누가 언제 판단하는지 재설계하지 않았다는 데 있습니다.",
+      "duration": 4.6,
+      "role": "build",
+      "media": {
+        "type": "gif",
+        "query": "문제는 생성 속도가 아니라 documentary",
+        "style": "contextual visual evidence",
+        "tags": [
+          "문제는",
+          "생성",
+          "속도가",
+          "아니라",
+          "누가"
+        ],
+        "sourceHint": "giphy / stock mix"
+      },
+      "subtitles": {
+        "id": "subtitle-문제는-생성-속도가-아니라",
+        "lines": [
+          "문제는 생성 속도가 아니라",
+          "누가 언제 판단하는지"
+        ],
+        "emphasis": [
+          "문제는",
+          "생성"
+        ]
+      },
+      "voice": {
+        "provider": "TTS placeholder",
+        "speed": 0.98,
+        "emotion": "serious"
+      },
+      "notes": "정보를 한 번에 하나씩만 전달해야 이탈이 줄어듭니다."
+    },
+    {
+      "id": "scene-6",
+      "index": 6,
+      "text": "문제는 생성 속도가 아니라 누가 언제 판단하는지 재설계하지 않았다는 데 있습니다.",
+      "duration": 4.6,
+      "role": "build",
+      "media": {
+        "type": "gif",
+        "query": "문제는 생성 속도가 아니라 documentary",
+        "style": "contextual visual evidence",
+        "tags": [
+          "문제는",
+          "생성",
+          "속도가",
+          "아니라",
+          "누가"
+        ],
+        "sourceHint": "giphy / stock mix"
+      },
+      "subtitles": {
+        "id": "subtitle-문제는-생성-속도가-아니라",
+        "lines": [
+          "문제는 생성 속도가 아니라",
+          "누가 언제 판단하는지"
+        ],
+        "emphasis": [
+          "문제는",
+          "생성"
+        ]
+      },
+      "voice": {
+        "provider": "TTS placeholder",
+        "speed": 0.98,
+        "emotion": "serious"
+      },
+      "notes": "정보를 한 번에 하나씩만 전달해야 이탈이 줄어듭니다."
+    },
+    {
+      "id": "scene-7",
+      "index": 7,
+      "text": "문제는 생성 속도가 아니라 누가 언제 판단하는지 재설계하지 않았다는 데 있습니다.",
+      "duration": 5,
+      "role": "payoff",
+      "media": {
+        "type": "image",
+        "query": "문제는 생성 속도가 아니라 documentary",
+        "style": "symbolic insight frame",
+        "tags": [
+          "문제는",
+          "생성",
+          "속도가",
+          "아니라",
+          "누가"
+        ],
+        "sourceHint": "editorial still"
+      },
+      "subtitles": {
+        "id": "subtitle-문제는-생성-속도가-아니라",
+        "lines": [
+          "문제는 생성 속도가 아니라",
+          "누가 언제 판단하는지"
+        ],
+        "emphasis": [
+          "문제는",
+          "생성"
+        ]
+      },
+      "voice": {
+        "provider": "TTS placeholder",
+        "speed": 0.98,
+        "emotion": "serious"
+      },
+      "notes": "이 장면은 해설이 아니라 통찰이 되어야 합니다."
+    },
+    {
+      "id": "scene-8",
+      "index": 8,
+      "text": "좋은 숏츠는 편집보다 구조에서 시작됩니다.",
+      "duration": 4.2,
+      "role": "cta",
+      "media": {
+        "type": "image",
+        "query": "좋은 숏츠는 편집보다 구조에서 documentary",
+        "style": "clean closing statement card",
+        "tags": [
+          "좋은",
+          "숏츠는",
+          "편집보다",
+          "구조에서",
+          "시작됩니다"
+        ],
+        "sourceHint": "editorial still"
+      },
+      "subtitles": {
+        "id": "subtitle-좋은-숏츠는-편집보다-구조",
+        "lines": [
+          "좋은 숏츠는 편집보다",
+          "구조에서 시작됩니다"
+        ],
+        "emphasis": [
+          "좋은",
+          "숏츠는"
+        ]
+      },
+      "voice": {
+        "provider": "TTS placeholder",
+        "speed": 0.94,
+        "emotion": "serious"
+      },
+      "notes": "행동 유도는 판매보다 기준 제안에 가깝게 마무리하세요."
+    }
+  ],
+  "qa": {
+    "quantitative": {
+      "subtitleDensity": "ok",
+      "sceneDuration": "ok",
+      "audioSync": "ok",
+      "cutFrequency": "ok"
+    },
+    "qualitative": {
+      "overall": 97,
+      "hookStrength": 98,
+      "scriptFlow": 98,
+      "visualFit": 100,
+      "subtitleReadability": 100,
+      "pacing": 94,
+      "ctaFinish": 92,
+      "originality": 100,
+      "creatorPersona": 92
+    },
+    "verdict": "pass",
+    "issues": [],
+    "recommendation": "현재 구조는 배포 가능한 수준입니다. 이제 실제 미디어 수집과 렌더 엔진을 붙이면 됩니다."
+  },
+  "updatedAt": "방금",
+  "readiness": 98,
+  "status": "rendered"
+}

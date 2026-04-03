@@ -1,0 +1,35 @@
+{
+  "name": "card-short-maker",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "check": "tsc --noEmit",
+    "build:web": "vite build",
+    "build:cli": "tsup src/cli.ts --format esm --out-dir dist-cli --clean",
+    "build": "npm run check && npm run build:web && npm run build:cli",
+    "preview": "vite preview",
+    "cli": "tsx src/cli.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "ffmpeg-static": "^5.2.0",
+    "jszip": "^3.10.1",
+    "framer-motion": "^11.11.9",
+    "lucide-react": "^0.453.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.6.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "tsup": "^8.3.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10",
+    "vitest": "^2.1.4"
+  }
+}
