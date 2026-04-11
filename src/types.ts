@@ -45,12 +45,15 @@ export interface MediaSpec {
   style: string;
   tags: string[];
   sourceHint: string;
+  generatedImageUrl?: string;
 }
 
 export interface VoiceSpec {
   provider: string;
   speed: number;
   emotion: "neutral" | "serious" | "energetic";
+  generatedAudioUrl?: string;
+  voiceId?: string;
 }
 
 export interface Scene {

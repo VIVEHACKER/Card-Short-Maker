@@ -10,11 +10,13 @@ import {
   Play,
   Plus,
   Search,
+  Settings,
   Sparkles,
   Trash2,
   Upload,
-  WandSparkles,
+
   Workflow,
+  Zap,
 } from "lucide-react";
 import {
   startTransition,
@@ -36,7 +38,8 @@ import {
   ReviewCanvas,
   ScoreBar,
 } from "./components/StudioPanels";
-import { createSampleProjects } from "./data/sampleProjects";
+import { AISettingsPanel } from "./components/AISettingsPanel";
+import { GenerationProgress } from "./components/GenerationProgress";
 import { hydrateProject, hydrateProjects, parseBriefPayload } from "./lib/project-io";
 import {
   addSceneAfter,
@@ -53,6 +56,10 @@ import {
   updateProjectRuntimeMode,
 } from "./lib/pipeline";
 import { buildRenderPackage } from "./lib/render-package";
+import { buildAutoDraftFromTitle } from "./lib/title-autofill";
+import { useAIConfig } from "./hooks/useAIConfig";
+import { useAIPipeline } from "./hooks/useAIPipeline";
+import { getAvailableProviders } from "./lib/ai/registry";
 import type { Brief, ExecutionMode, RenderPackage, SceneRole, ShortsProject } from "./types";
 
 type TabKey = "brief" | "editor" | "review" | "drafts" | "export";
@@ -87,9 +94,14 @@ function App() {
   const [draftScript, setDraftScript] = useState(projects[0]?.script ?? "");
   const [draftMode, setDraftMode] = useState<ExecutionMode>(projects[0]?.runtime.mode ?? "local");
   const [notice, setNotice] = useState("");
+  const [showAISettings, setShowAISettings] = useState(false);
+  const trackedObjectUrlsRef = useRef<Set<string>>(new Set());
 
   const projectImportRef = useRef<HTMLInputElement>(null);
   const briefImportRef = useRef<HTMLInputElement>(null);
+
+  const { hasAnyProvider } = useAIConfig();
+  const { generate: aiGenerate, cancel: aiCancel, progress: aiProgress, isGenerating } = useAIPipeline();
 
   const deferredSearch = useDeferredValue(search);
 
@@ -124,12 +136,71 @@ function App() {
 
   useEffect(() => {
     if (!notice) return;
-    const timer = window.setTimeout(() => setNotice(""), 2600);
+    const isError = notice.includes("실패") || notice.includes("없습니다") || notice.includes("0/");
+    const timer = window.setTimeout(() => setNotice(""), isError ? 15000 : 3000);
     return () => window.clearTimeout(timer);
   }, [notice]);
 
+  useEffect(() => {
+    const nextUrls = collectProjectObjectUrls(projects);
+    const previousUrls = trackedObjectUrlsRef.current;
+
+    for (const url of previousUrls) {
+      if (!nextUrls.has(url)) {
+        URL.revokeObjectURL(url);
+      }
+    }
+
+    trackedObjectUrlsRef.current = nextUrls;
+  }, [projects]);
+
+  useEffect(() => {
+    return () => {
+      for (const url of trackedObjectUrlsRef.current) {
+        URL.revokeObjectURL(url);
+      }
+      trackedObjectUrlsRef.current.clear();
+    };
+  }, []);
+
+  function handleRecoverWorkspace() {
+    const fallbackProjects = [createBlankProject()];
+    const first = fallbackProjects[0];
+
+    try {
+      window.localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // ignore storage errors and continue with in-memory reset
+    }
+
+    setProjects(fallbackProjects);
+    setActiveProjectId(first?.id ?? "");
+    setActiveSceneId(first?.scenes[0]?.id ?? "");
+    setDraftBrief(first?.brief ?? createEmptyBrief());
+    setDraftScript(first?.script ?? "");
+    setDraftMode(first?.runtime.mode ?? "local");
+    setActiveTab("brief");
+    setNotice("저장된 프로젝트를 초기화하고 빈 프로젝트로 복구했습니다.");
+  }
+
   if (!activeProject || !activeScene || !renderPackage) {
-    return null;
+    return (
+      <div className="startup-fallback">
+        <section className="startup-fallback__card">
+          <p className="startup-fallback__eyebrow">Card Short Maker</p>
+          <h1 className="startup-fallback__title">프로젝트 상태를 불러오지 못했습니다</h1>
+          <p className="startup-fallback__desc">
+            저장된 로컬 프로젝트 데이터가 손상되었거나, 현재 앱 구조와 호환되지 않을 수 있습니다.
+            아래 버튼으로 프로젝트 상태를 복구할 수 있습니다.
+          </p>
+          <div className="startup-fallback__actions">
+            <button type="button" className="new-reel" onClick={handleRecoverWorkspace}>
+              프로젝트 복구하기
+            </button>
+          </div>
+        </section>
+      </div>
+    );
   }
 
   const accentStyle = { "--accent": activeProject.accent } as CSSProperties;
@@ -147,9 +218,69 @@ function App() {
     setActiveSceneId(nextSceneId);
   }
 
-  function handleGenerate() {
-    startTransition(() => {
-      const nextProject = createProjectFromBrief(draftBrief, draftScript, {
+  function handleTitleAutofill(rawTitle: string, options?: { force?: boolean }) {
+    const title = rawTitle.trim();
+    const force = options?.force ?? false;
+    if (!title) {
+      return;
+    }
+
+    if (!force && hasPendingDraftEdits(activeProject, draftBrief, draftScript, draftMode)) {
+      setNotice("수동으로 편집한 내용이 있어 제목 자동 채움을 건너뛰었습니다.");
+      return;
+    }
+
+    const autoDraft = buildAutoDraftFromTitle(title, draftBrief);
+    setDraftBrief(autoDraft.brief);
+    // P2 fix: 기존 스크립트를 빈 문자열로 덮어쓰지 않음 — AI 성공 후에만 교체
+    if (autoDraft.script) {
+      setDraftScript(autoDraft.script);
+    }
+
+    // 브리프 채움 후 AI 파이프라인 자동 실행
+    runAIGenerate(autoDraft.brief).catch((error) => {
+      console.error("[handleTitleAutofill] 미처리 에러:", error);
+      setNotice(`AI 생성 실패: ${error instanceof Error ? error.message : String(error)}`);
+    });
+  }
+
+  async function runAIGenerate(briefOverride?: Brief) {
+    const imageProviders = getAvailableProviders("image");
+    const textProviders = getAvailableProviders("text");
+    console.log("[runAIGenerate]", { hasAnyProvider, textProviders, imageProviders, isGenerating });
+
+    if (!hasAnyProvider) {
+      setShowAISettings(true);
+      setNotice("AI 생성을 하려면 API 키를 먼저 설정해 주세요.");
+      return;
+    }
+
+    if (imageProviders.length === 0) {
+      setShowAISettings(true);
+      setNotice("이미지 생성용 API 키가 없습니다. OpenAI 또는 Google 키를 설정해 주세요.");
+      return;
+    }
+
+    if (isGenerating) {
+      setNotice("이미 생성이 진행 중입니다.");
+      return;
+    }
+
+    const baseBrief = briefOverride ?? draftBrief;
+    const normalizedTitle = baseBrief.title.trim();
+    const shouldEnrichBrief =
+      normalizedTitle.length > 0 &&
+      (!baseBrief.topic.trim() || !baseBrief.audience.trim() || !baseBrief.thesis.trim());
+    const effectiveBrief = shouldEnrichBrief
+      ? buildAutoDraftFromTitle(normalizedTitle, baseBrief).brief
+      : baseBrief;
+
+    if (shouldEnrichBrief) {
+      setDraftBrief(effectiveBrief);
+    }
+
+    try {
+      const result = await aiGenerate(effectiveBrief, {
         id: activeProject.id,
         accent: activeProject.accent,
         channel: activeProject.channel,
@@ -157,31 +288,74 @@ function App() {
         runtimeMode: draftMode,
       });
 
-      commitProject(nextProject);
-      setActiveProjectId(nextProject.id);
+      setDraftScript(result.project.script);
+      commitProject(result.project);
+      setActiveProjectId(result.project.id);
       setActiveTab("editor");
-      setNotice("브리프를 기준으로 장면과 QA를 다시 생성했습니다.");
+
+      const sceneTotal = result.project.scenes.length;
+      const statusParts = [
+        `이미지 ${result.imageSuccessCount}/${sceneTotal}`,
+        `음성 ${result.ttsSuccessCount}/${sceneTotal}`,
+      ];
+      const firstError = result.errors[0] ?? "";
+      const errorSummary = firstError
+        ? ` — ${firstError}`
+        : "";
+      setNotice(`${result.scriptProvider} 생성 완료 · ${statusParts.join(" · ")}${errorSummary}`);
+    } catch (error) {
+      // 스크립트 생성 자체가 실패한 경우만 여기에 도달
+      const message = error instanceof Error ? error.message : "알 수 없는 오류";
+      setNotice(`AI 생성 실패: ${message}`);
+    }
+  }
+
+  function handleAIGenerate() {
+    runAIGenerate().catch((error) => {
+      setNotice(`AI 생성 실패: ${error instanceof Error ? error.message : String(error)}`);
     });
   }
 
+  async function handleDiagnose() {
+    const textP = getAvailableProviders("text");
+    const imageP = getAvailableProviders("image");
+    const ttsP = getAvailableProviders("tts");
+    const lines = [`프로바이더: text=${textP.join(",") || "없음"} | image=${imageP.join(",") || "없음"} | tts=${ttsP.join(",") || "없음"}`];
+
+    if (imageP.length === 0) {
+      lines.push("이미지 프로바이더 없음 — OpenAI 또는 Google 키를 설정하세요");
+      setNotice(lines.join("\n"));
+      return;
+    }
+
+    lines.push(`이미지 테스트 (${imageP[0]})...`);
+    setNotice(lines.join(" | "));
+
+    try {
+      const { generateImage } = await import("./lib/ai/capabilities/image-generation");
+      const result = await generateImage({
+        prompt: "simple blue gradient background",
+        style: "minimal clean",
+        aspectRatio: "9:16",
+        sceneRole: "hook",
+      });
+      lines.push(`성공! URL=${result.imageUrl.slice(0, 30)}...`);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      lines.push(`실패: ${msg}`);
+    }
+
+    setNotice(lines.join(" | "));
+  }
+
   function handleCreateProject() {
-    const brief = createEmptyBrief();
-    const project = createProjectFromBrief(
-      brief,
-      [
-        "문제는 편집이 아니라 의사결정입니다.",
-        "먼저 무엇을 말할지 정하고, 그다음 몇 초로 나눌지 결정해야 합니다.",
-        "좋은 숏츠는 장면이 아니라 구조로 기억됩니다.",
-        "그래서 브리프와 씬 계약부터 먼저 고정해야 합니다.",
-      ].join("\n"),
-      {
-        id: `project-${Date.now()}`,
-        accent: "#9fd49f",
-        channel: "channel-new",
-        preset: "새 프로젝트",
-        runtimeMode: "local",
-      },
-    );
+    const project = createBlankProject({
+      id: `project-${Date.now()}`,
+      accent: "#9fd49f",
+      channel: "channel-new",
+      preset: "새 프로젝트",
+      runtimeMode: "local",
+    });
 
     setProjects((current) => [project, ...current]);
     setActiveProjectId(project.id);
@@ -435,6 +609,9 @@ function App() {
           <div className="topbar__meta">
             <span>Ready</span>
             <strong>{activeProject.readiness}%</strong>
+            <button className="ghost-button ghost-button--small" type="button" onClick={() => setShowAISettings(true)} aria-label="AI 설정">
+              <Settings size={15} />
+            </button>
           </div>
         </header>
 
@@ -458,19 +635,41 @@ function App() {
                 <p>브리프 입력</p>
                 <h2>스크립트와 기준 설계</h2>
               </div>
-              <button className="ghost-button" type="button" onClick={handleGenerate}>
-                <WandSparkles size={15} />
-                자동 생성
-              </button>
+              <div className="brief-actions">
+                <button className="ghost-button" type="button" onClick={handleDiagnose} disabled={isGenerating}>
+                  <Search size={15} />
+                  진단
+                </button>
+                <button className="ai-generate-button" type="button" onClick={handleAIGenerate} disabled={isGenerating}>
+                  <Zap size={15} />
+                  AI 생성
+                </button>
+              </div>
             </div>
 
             <div className="panel__content panel__content--form">
               <label className="field">
                 <span>제목</span>
-                <input
-                  value={draftBrief.title}
-                  onChange={(event) => setDraftBrief((current) => ({ ...current, title: event.target.value }))}
-                />
+                <div className="field-input-action">
+                  <input
+                    value={draftBrief.title}
+                    onChange={(event) => setDraftBrief((current) => ({ ...current, title: event.target.value }))}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        handleTitleAutofill(event.currentTarget.value, { force: true });
+                      }
+                    }}
+                  />
+                  <button
+                    className="ghost-button ghost-button--small"
+                    type="button"
+                    onClick={() => handleTitleAutofill(draftBrief.title, { force: true })}
+                    disabled={!draftBrief.title.trim()}
+                  >
+                    자동 채우기
+                  </button>
+                </div>
               </label>
 
               <label className="field">
@@ -850,6 +1049,9 @@ function App() {
           </section>
         </section>
       </main>
+
+      <AISettingsPanel open={showAISettings} onClose={() => setShowAISettings(false)} />
+      <GenerationProgress progress={aiProgress} onCancel={aiCancel} />
     </div>
   );
 }
@@ -857,15 +1059,15 @@ function App() {
 function createEmptyBrief(): Brief {
   return {
     id: `brief-${Date.now()}`,
-    title: "새 숏츠 초안",
-    topic: "새로운 주제를 입력하세요",
+    title: "",
+    topic: "",
     intent: "info",
     tone: "serious",
     targetDuration: 30,
     platform: "youtube",
     language: "ko",
-    audience: "의사결정 구조를 빠르게 공유하고 싶은 실무자",
-    thesis: "좋은 숏츠는 문장을 많이 쓰는 것이 아니라 구조를 먼저 세우는 데서 시작됩니다.",
+    audience: "",
+    thesis: "",
   };
 }
 
@@ -917,18 +1119,76 @@ function prettyQuantLabel(label: string): string {
 
 function loadProjects(): ShortsProject[] {
   const raw = window.localStorage.getItem(STORAGE_KEY);
-  if (!raw) return createSampleProjects();
+  if (!raw) return [createBlankProject()];
 
   try {
     const parsed = hydrateProjects(JSON.parse(raw) as unknown);
-    return parsed.length ? parsed : createSampleProjects();
+    return parsed.length ? parsed : [createBlankProject()];
   } catch {
-    return createSampleProjects();
+    return [createBlankProject()];
   }
+}
+
+function createBlankProject(
+  options?: Partial<Pick<ShortsProject, "id" | "channel" | "preset" | "accent" | "updatedAt" | "status">> & {
+    runtimeMode?: ExecutionMode;
+  },
+): ShortsProject {
+  const brief = createEmptyBrief();
+
+  return createProjectFromBrief(brief, "", {
+    id: options?.id ?? `project-${Date.now()}`,
+    channel: options?.channel ?? "channel-a",
+    preset: options?.preset ?? "새 프로젝트",
+    accent: options?.accent ?? "#f2b36f",
+    runtimeMode: options?.runtimeMode ?? "local",
+    updatedAt: options?.updatedAt ?? "방금",
+    status: options?.status ?? "editing",
+  });
+}
+
+function hasPendingDraftEdits(
+	activeProject: ShortsProject,
+	draftBrief: Brief,
+	draftScript: string,
+	draftMode: ExecutionMode,
+): boolean {
+	return (
+		draftScript.trim() !== activeProject.script.trim() ||
+		draftMode !== activeProject.runtime.mode ||
+		draftBrief.topic !== activeProject.brief.topic ||
+		draftBrief.intent !== activeProject.brief.intent ||
+		draftBrief.tone !== activeProject.brief.tone ||
+		draftBrief.targetDuration !== activeProject.brief.targetDuration ||
+		draftBrief.platform !== activeProject.brief.platform ||
+		draftBrief.audience !== activeProject.brief.audience ||
+		draftBrief.thesis !== activeProject.brief.thesis
+	);
+}
+
+function collectProjectObjectUrls(projects: ShortsProject[]): Set<string> {
+	const urls = new Set<string>();
+
+	for (const project of projects) {
+		for (const scene of project.scenes) {
+			if (scene.media.generatedImageUrl?.startsWith("blob:")) {
+				urls.add(scene.media.generatedImageUrl);
+			}
+			if (scene.voice.generatedAudioUrl?.startsWith("blob:")) {
+				urls.add(scene.voice.generatedAudioUrl);
+			}
+		}
+	}
+
+	return urls;
 }
 
 function slugify(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9가-힣]+/g, "-");
+}
+
+function normalizeForDiff(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
 }
 
 function downloadText(filename: string, content: string, mime: string) {

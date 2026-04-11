@@ -46,11 +46,27 @@ const STOPWORDS = new Set([
 ]);
 
 const CTA_LIBRARY = [
-  "이 기준부터 바꾸면 숏츠가 달라집니다.",
-  "이 구조를 먼저 설계하는 팀이 결국 이깁니다.",
-  "속도보다 판단 구조를 먼저 바꿔야 합니다.",
-  "좋은 숏츠는 편집보다 구조에서 시작됩니다.",
+  "지금 기준 하나만 바꿔도 결과가 달라집니다.",
+  "오늘 바로 한 항목만 실험해보세요.",
+  "다음 작업부터 이 순서로 적용해보세요.",
+  "메모 말고 실행으로 검증해보세요.",
 ];
+
+const BUILD_BRIDGE_LIBRARY = [
+  "대부분은 현상만 보고 원인을 놓칩니다.",
+  "문제는 도구보다 판단 순서에 있습니다.",
+  "속도보다 기준이 먼저 고정돼야 흔들리지 않습니다.",
+  "한 번의 요령보다 반복 가능한 구조가 중요합니다.",
+  "같은 실수를 줄이려면 체크 기준을 먼저 세워야 합니다.",
+  "복잡해 보여도 원리는 의외로 단순합니다.",
+];
+
+const ROLE_QUERY_HINT: Record<SceneRole, string> = {
+  hook: "dramatic opening",
+  build: "process detail",
+  payoff: "insight reveal",
+  cta: "clean closing frame",
+};
 
 const ROLE_NOTE: Record<SceneRole, string> = {
   hook: "첫 3초 안에 문제의식이나 반전을 드러내세요.",
@@ -301,33 +317,156 @@ export function buildRuntimeProfile(mode: ExecutionMode): RuntimeProfile {
 }
 
 function buildScenes(brief: Brief, script: string): Scene[] {
-  const units = normalizeScript(script, brief);
   const desiredCount = clamp(Math.round(brief.targetDuration / 4.8), 6, 8);
-  const seed = units.length ? [...units] : [brief.thesis];
+  const roles = createRolePlan(desiredCount);
+  const hasInput = script.trim().length > 0 || brief.thesis.trim().length > 0;
 
-  while (seed.length < desiredCount - 1) {
-    seed.push(seed[seed.length - 1] ?? brief.thesis);
+  if (!hasInput) {
+    const durations = distributeDurations(brief.targetDuration, roles);
+
+    return roles.map((role, index) =>
+      createScene(brief, {
+        id: `scene-${index + 1}`,
+        index: index + 1,
+        text: "",
+        duration: durations[index],
+        role,
+      }),
+    );
   }
 
-  const cta = CTA_LIBRARY[(brief.title.length + brief.targetDuration) % CTA_LIBRARY.length];
-  const texts = [...seed.slice(0, desiredCount - 1), cta];
-  const roles = texts.map<SceneRole>((_, index) => {
-    if (index === 0) return "hook";
-    if (index === texts.length - 1) return "cta";
-    if (index === texts.length - 2) return "payoff";
-    return "build";
-  });
+  const units = normalizeScript(script, brief);
+  const texts = buildNarrativeTexts(brief, units, roles);
   const durations = distributeDurations(brief.targetDuration, roles);
 
-  return texts.map((text, index) =>
+  return roles.map((role, index) =>
     createScene(brief, {
       id: `scene-${index + 1}`,
       index: index + 1,
-      text: polishSceneText(text, roles[index]),
+      text: polishSceneText(texts[index] ?? "", role),
       duration: durations[index],
-      role: roles[index],
+      role,
     }),
   );
+}
+
+function createRolePlan(sceneCount: number): SceneRole[] {
+  return Array.from({ length: sceneCount }, (_, index): SceneRole => {
+    if (index === 0) return "hook";
+    if (index === sceneCount - 1) return "cta";
+    if (index === sceneCount - 2) return "payoff";
+    return "build";
+  });
+}
+
+function buildNarrativeTexts(
+  brief: Brief,
+  rawUnits: string[],
+  roles: SceneRole[],
+): string[] {
+  const topic = resolveTopic(brief);
+  const thesis = brief.thesis.trim();
+  const units = rawUnits.map((line) => line.trim()).filter(Boolean);
+  const deduped = Array.from(new Set(units));
+  const buildCount = roles.filter((role) => role === "build").length;
+  const buildLines = deduped.slice(1);
+
+  while (buildLines.length < buildCount) {
+    buildLines.push(buildBridgeLine(brief, buildLines.length));
+  }
+
+  const hookBase = deduped[0] ?? buildBridgeLine(brief, 0);
+  const payoffBase = deduped[deduped.length - 1] || thesis || buildBridgeLine(brief, 2);
+  const lines: string[] = [];
+  let buildCursor = 0;
+
+  for (const role of roles) {
+    if (role === "hook") {
+      lines.push(buildHookLine(topic, hookBase));
+      continue;
+    }
+
+    if (role === "build") {
+      const buildLine = buildLines[buildCursor] ?? buildBridgeLine(brief, buildCursor);
+      lines.push(buildLine);
+      buildCursor += 1;
+      continue;
+    }
+
+    if (role === "payoff") {
+      lines.push(buildPayoffLine(topic, thesis, payoffBase));
+      continue;
+    }
+
+    lines.push(buildCtaLine(topic, brief.intent));
+  }
+
+  return lines;
+}
+
+function buildHookLine(topic: string, base: string): string {
+  if (/[?!]$/.test(base)) {
+    return base;
+  }
+
+  if (compactLength(base) >= 14 && compactLength(base) <= 28) {
+    return `${base}?`;
+  }
+
+  if (topic) {
+    return `${topic}, 왜 결과가 흔들릴까요?`;
+  }
+
+  return "왜 같은 실수를 반복할까요?";
+}
+
+function buildPayoffLine(topic: string, thesis: string, fallback: string): string {
+  if (thesis) {
+    return thesis;
+  }
+
+  if (compactLength(fallback) >= 8) {
+    return fallback;
+  }
+
+  return topic ? `${topic}의 핵심은 기준을 먼저 고정하는 것입니다.` : "핵심은 기준을 먼저 고정하는 것입니다.";
+}
+
+function buildBridgeLine(brief: Brief, index: number): string {
+  const topic = resolveTopic(brief);
+  const thesis = brief.thesis.trim();
+  const moodLine = BUILD_BRIDGE_LIBRARY[index % BUILD_BRIDGE_LIBRARY.length];
+
+  if (index % 2 === 0 && topic) {
+    return `${topic}, ${moodLine}`;
+  }
+
+  if (thesis) {
+    return `${thesis.replace(/[.!?]+$/g, "")} 그래서 실행 기준이 필요합니다.`;
+  }
+
+  return moodLine;
+}
+
+function buildCtaLine(topic: string, intent: Brief["intent"]): string {
+  const fallback = CTA_LIBRARY[Math.floor(topic.length / 2) % CTA_LIBRARY.length];
+  if (!topic) {
+    return fallback;
+  }
+
+  if (intent === "opinion") {
+    return `${topic}, 내 기준 하나를 정해 오늘 바로 검증해보세요.`;
+  }
+
+  if (intent === "story") {
+    return `${topic}에서 배운 기준을 다음 작업에 바로 적용해보세요.`;
+  }
+
+  return `${topic}, 핵심 한 줄을 적고 바로 실행해보세요.`;
+}
+
+function resolveTopic(brief: Brief): string {
+  return (brief.topic || brief.title).trim();
 }
 
 function createScene(
@@ -414,19 +553,31 @@ function buildVoiceSpec(brief: Brief, role: SceneRole): VoiceSpec {
 
 function buildMediaSpec(text: string, brief: Brief, role: SceneRole): MediaSpec {
   const tags = extractKeywords(text);
+  const hasSceneText = text.trim().length > 0;
+  const moodTag = brief.tone === "serious" ? "documentary" : "illustration";
+  const topicTags = extractKeywords(`${brief.title} ${brief.topic}`).slice(0, 2);
+  const queryTags = hasSceneText
+    ? Array.from(new Set([...topicTags, ...tags.slice(0, 3), ROLE_QUERY_HINT[role], moodTag]))
+    : [];
   const styleMap: Record<SceneRole, string> = {
-    hook: "high-contrast editorial frame",
-    build: "contextual visual evidence",
-    payoff: "symbolic insight frame",
-    cta: "clean closing statement card",
+    hook: "cinematic high-contrast opening frame, sharp focus, dynamic composition",
+    build: "editorial documentary still, real-world context, layered depth",
+    payoff: "conceptual symbolic visual, clean focal subject, premium lighting",
+    cta: "clean conversion frame, minimal background, strong subject separation",
+  };
+  const sourceHintMap: Record<SceneRole, string> = {
+    hook: "editorial still / dramatic stock",
+    build: "b-roll documentary / stock mix",
+    payoff: "conceptual art / symbolic stock",
+    cta: "editorial still / clean studio frame",
   };
 
   return {
     type: role === "build" ? "gif" : "image",
-    query: [...tags.slice(0, 4), brief.tone === "serious" ? "documentary" : "illustration"].join(" "),
+    query: queryTags.length ? queryTags.join(" ") : "",
     style: styleMap[role],
     tags,
-    sourceHint: role === "build" ? "giphy / stock mix" : "editorial still",
+    sourceHint: sourceHintMap[role],
   };
 }
 
@@ -525,10 +676,18 @@ function distributeDurations(targetDuration: number, roles: SceneRole[]): number
 }
 
 function polishSceneText(text: string, role: SceneRole): string {
-  const cleaned = text.replace(/\s+/g, " ").trim();
+  const cleaned = text
+    .replace(/^(이 영상에서는|이번 영상에서는)\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) return "";
 
   if (role === "hook" && !/[?!]$/.test(cleaned) && compactLength(cleaned) <= 26) {
     return `${cleaned}?`;
+  }
+
+  if (role === "cta" && !/(해보세요|하세요|시작하세요|적용해보세요|검증해보세요)[.!?]*$/i.test(cleaned)) {
+    return `${cleaned.replace(/[.!?]+$/g, "")} 해보세요.`;
   }
 
   return cleaned;

@@ -4,12 +4,12 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --host 127.0.0.1 --port 5173",
     "check": "tsc --noEmit",
     "build:web": "vite build",
     "build:cli": "tsup src/cli.ts --format esm --out-dir dist-cli --clean",
     "build": "npm run check && npm run build:web && npm run build:cli",
-    "preview": "vite preview",
+    "preview": "vite preview --host 127.0.0.1 --port 4173",
     "cli": "tsx src/cli.ts",
     "test": "vitest run"
   },
