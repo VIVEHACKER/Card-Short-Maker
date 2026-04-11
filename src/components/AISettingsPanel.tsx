@@ -39,8 +39,8 @@ export function AISettingsPanel({
 
 				<div className="ai-settings-notice">
 					<p>
-						API 키는 이 탭의 sessionStorage에 저장됩니다. 브라우저를 완전히
-						닫으면 사라지며, 요청 시에만 각 AI API로 전송됩니다.
+						API 키는 브라우저 localStorage에 저장됩니다. 소스 코드나 Git에는
+						포함되지 않으며, 요청 시에만 각 AI API로 전송됩니다.
 					</p>
 				</div>
 			</div>

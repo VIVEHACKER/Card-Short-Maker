@@ -180,19 +180,13 @@ function extractSecrets(settings: AISettings): AISecrets {
 }
 
 function loadSecrets(): AISecrets {
-	const sessionStorage = getStorage("sessionStorage");
-	if (sessionStorage) {
-		const sessionRaw = readStorageValue(
-			"sessionStorage",
-			AI_SECRETS_STORAGE_KEY,
-		);
-		if (!sessionRaw) {
-			return {};
-		}
+	const storage = getStorage("localStorage");
+	if (storage) {
+		const raw = readStorageValue("localStorage", AI_SECRETS_STORAGE_KEY);
+		if (!raw) return {};
 
 		try {
-			const parsed = asRecord(JSON.parse(sessionRaw) as unknown);
-			return normalizeSecrets(parsed);
+			return normalizeSecrets(asRecord(JSON.parse(raw) as unknown));
 		} catch {
 			return {};
 		}
@@ -203,12 +197,12 @@ function loadSecrets(): AISecrets {
 
 function saveSecrets(secrets: AISecrets): void {
 	const normalized = normalizeSecrets(secrets as Record<string, unknown>);
-	const sessionStorage = getStorage("sessionStorage");
+	const storage = getStorage("localStorage");
 
-	if (sessionStorage) {
+	if (storage) {
 		volatileSecrets = {};
 		writeStorageValue(
-			"sessionStorage",
+			"localStorage",
 			AI_SECRETS_STORAGE_KEY,
 			JSON.stringify(normalized),
 		);
