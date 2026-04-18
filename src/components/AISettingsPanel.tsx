@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Settings, Eye, EyeOff, CheckCircle, XCircle } from "lucide-react";
+import { Settings, Eye, EyeOff, CheckCircle, XCircle, ImageIcon } from "lucide-react";
 import { useAIConfig } from "../hooks/useAIConfig";
 import { validateKeyFormat } from "../lib/ai/config";
 import {
@@ -7,6 +7,7 @@ import {
 	PROVIDER_CAPABILITIES,
 	PROVIDER_LABELS,
 } from "../lib/ai/types";
+import { getStockConfig, saveStockConfig } from "../lib/stock";
 
 const PROVIDERS: AIProviderName[] = ["openai", "google", "anthropic"];
 const CAPABILITIES = ["text", "image", "tts"] as const;
@@ -36,6 +37,7 @@ export function AISettingsPanel({
 
 				<ProviderKeySection />
 				<CapabilityAssignment />
+				<StockMediaSection />
 
 				<div className="ai-settings-notice">
 					<p>
@@ -193,6 +195,100 @@ function CapabilityAssignment() {
 						),
 					)}
 				</select>
+			</div>
+		</div>
+	);
+}
+
+function StockMediaSection() {
+	const [config, setConfig] = useState(getStockConfig);
+	const [visible, setVisible] = useState<Record<string, boolean>>({});
+
+	function updateKey(field: "pexelsApiKey" | "pixabayApiKey", value: string) {
+		const next = { ...config, [field]: value };
+		setConfig(next);
+		saveStockConfig(next);
+	}
+
+	return (
+		<div className="ai-settings-section">
+			<h3>
+				<ImageIcon size={15} style={{ verticalAlign: "text-bottom", marginRight: 6 }} />
+				스톡 미디어 (무료)
+			</h3>
+			<p className="ai-settings-hint">
+				Pexels/Pixabay API 키를 입력하면 장면별 실사 이미지를 자동 검색합니다.
+				AI 이미지 생성보다 우선 적용됩니다.
+			</p>
+
+			<div className="ai-key-row">
+				<div className="ai-key-row__label">
+					<span>Pexels</span>
+					{config.pexelsApiKey.trim() && (
+						<CheckCircle size={14} className="ai-key-ok" />
+					)}
+				</div>
+				<div className="ai-key-row__input">
+					<input
+						type={visible.pexels ? "text" : "password"}
+						value={config.pexelsApiKey}
+						onChange={(e) => updateKey("pexelsApiKey", e.target.value)}
+						placeholder="pexels.com/api 에서 발급"
+						spellCheck={false}
+						autoComplete="off"
+					/>
+					<button
+						type="button"
+						className="ghost-button"
+						onClick={() =>
+							setVisible((p) => ({ ...p, pexels: !p.pexels }))
+						}
+						aria-label={visible.pexels ? "숨기기" : "보기"}
+					>
+						{visible.pexels ? <EyeOff size={14} /> : <Eye size={14} />}
+					</button>
+				</div>
+				<div className="ai-cap-badges">
+					<span className="ai-cap-badge ai-cap-badge--ok">사진</span>
+					<span className="ai-cap-badge ai-cap-badge--ok">영상</span>
+				</div>
+			</div>
+
+			<div className="ai-key-row">
+				<div className="ai-key-row__label">
+					<span>Pixabay</span>
+					{config.pixabayApiKey.trim() && (
+						<CheckCircle size={14} className="ai-key-ok" />
+					)}
+				</div>
+				<div className="ai-key-row__input">
+					<input
+						type={visible.pixabay ? "text" : "password"}
+						value={config.pixabayApiKey}
+						onChange={(e) => updateKey("pixabayApiKey", e.target.value)}
+						placeholder="pixabay.com/api/docs 에서 발급"
+						spellCheck={false}
+						autoComplete="off"
+					/>
+					<button
+						type="button"
+						className="ghost-button"
+						onClick={() =>
+							setVisible((p) => ({ ...p, pixabay: !p.pixabay }))
+						}
+						aria-label={visible.pixabay ? "숨기기" : "보기"}
+					>
+						{visible.pixabay ? (
+							<EyeOff size={14} />
+						) : (
+							<Eye size={14} />
+						)}
+					</button>
+				</div>
+				<div className="ai-cap-badges">
+					<span className="ai-cap-badge ai-cap-badge--ok">사진</span>
+					<span className="ai-cap-badge ai-cap-badge--ok">영상</span>
+				</div>
 			</div>
 		</div>
 	);

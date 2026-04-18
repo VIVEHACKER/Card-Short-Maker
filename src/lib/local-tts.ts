@@ -1,10 +1,65 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { Language } from "../types";
+import { isPiperAvailable, synthesizeWithPiper } from "./piper-tts";
 
 const execFileAsync = promisify(execFile);
 
+/**
+ * Synthesize audio for a scene using the best available local TTS.
+ * Priority: Piper (cross-platform, free) → Windows SAPI (Windows only).
+ */
+export async function synthesizeSceneAudio(options: {
+	text: string;
+	outputPath: string;
+	language: Language;
+	preferredVoice?: string;
+	speed?: number;
+}): Promise<{ voice: string }> {
+	// Try Piper first (cross-platform)
+	if (await isPiperAvailable()) {
+		try {
+			const result = await synthesizeWithPiper({
+				text: options.text,
+				outputPath: options.outputPath,
+				language: options.language,
+				speed: options.speed,
+			});
+			return { voice: `piper:${result.voice}` };
+		} catch (error) {
+			console.warn(
+				"[TTS] Piper 실패, Windows SAPI 폴백 시도:",
+				error instanceof Error ? error.message : error,
+			);
+		}
+	}
+
+	// Fallback to Windows SAPI
+	if (process.platform === "win32") {
+		return synthesizeWithWindowsSapi(options);
+	}
+
+	// macOS: try `say` command as last resort
+	if (process.platform === "darwin") {
+		return synthesizeWithMacSay(options);
+	}
+
+	throw new Error(
+		"로컬 TTS를 사용할 수 없습니다. " +
+			"`pip install piper-tts`로 Piper를 설치하거나, " +
+			"AI 설정에서 클라우드 TTS 프로바이더를 설정해 주세요.",
+	);
+}
+
+// ── Piper availability check (re-exported for external use) ──
+
+export { isPiperAvailable } from "./piper-tts";
+
+// ── Windows SAPI ──
+
 export async function getInstalledWindowsVoices(): Promise<string[]> {
+	if (process.platform !== "win32") return [];
+
 	const command = [
 		"Add-Type -AssemblyName System.Speech",
 		"$s = New-Object System.Speech.Synthesis.SpeechSynthesizer",
@@ -14,9 +69,7 @@ export async function getInstalledWindowsVoices(): Promise<string[]> {
 	const { stdout } = await execFileAsync(
 		"powershell",
 		["-NoProfile", "-Command", command],
-		{
-			windowsHide: true,
-		},
+		{ windowsHide: true },
 	);
 
 	return stdout
@@ -25,7 +78,7 @@ export async function getInstalledWindowsVoices(): Promise<string[]> {
 		.filter(Boolean);
 }
 
-export async function synthesizeSceneAudio(options: {
+async function synthesizeWithWindowsSapi(options: {
 	text: string;
 	outputPath: string;
 	language: Language;
@@ -33,7 +86,11 @@ export async function synthesizeSceneAudio(options: {
 	speed?: number;
 }): Promise<{ voice: string }> {
 	const voices = await getInstalledWindowsVoices();
-	const voice = pickVoice(voices, options.language, options.preferredVoice);
+	const voice = pickWindowsVoice(
+		voices,
+		options.language,
+		options.preferredVoice,
+	);
 	const textBase64 = Buffer.from(options.text, "utf8").toString("base64");
 	const outputBase64 = Buffer.from(options.outputPath, "utf8").toString(
 		"base64",
@@ -61,7 +118,41 @@ export async function synthesizeSceneAudio(options: {
 	return { voice };
 }
 
-function pickVoice(
+// ── macOS `say` command ──
+
+async function synthesizeWithMacSay(options: {
+	text: string;
+	outputPath: string;
+	language: Language;
+	speed?: number;
+}): Promise<{ voice: string }> {
+	const voice = options.language === "ko" ? "Yuna" : "Samantha";
+	const rate = Math.round((options.speed ?? 1) * 175);
+
+	// `say` outputs AIFF by default; convert path to .aiff if needed
+	const outPath = options.outputPath.replace(/\.wav$/, ".aiff");
+
+	try {
+		await execFileAsync(
+			"say",
+			["-v", voice, "-r", String(rate), "-o", outPath, options.text],
+			{ timeout: 30000 },
+		);
+	} catch {
+		// Fallback to default voice if specified voice not available
+		await execFileAsync(
+			"say",
+			["-r", String(rate), "-o", outPath, options.text],
+			{ timeout: 30000 },
+		);
+	}
+
+	return { voice: `macos:${voice}` };
+}
+
+// ── Helpers ──
+
+function pickWindowsVoice(
 	voices: string[],
 	language: Language,
 	preferredVoice?: string,
@@ -72,14 +163,14 @@ function pickVoice(
 
 	if (language === "ko") {
 		return (
-			voices.find((voice) => /Heami|Korean|Ko/i.test(voice)) ??
+			voices.find((v) => /Heami|Korean|Ko/i.test(v)) ??
 			voices[0] ??
 			"Microsoft Heami Desktop"
 		);
 	}
 
 	return (
-		voices.find((voice) => /Zira|David|English/i.test(voice)) ??
+		voices.find((v) => /Zira|David|English/i.test(v)) ??
 		voices[0] ??
 		"Microsoft Zira Desktop"
 	);

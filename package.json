@@ -11,15 +11,21 @@
     "build": "npm run check && npm run build:web && npm run build:cli",
     "preview": "vite preview --host 127.0.0.1 --port 4173",
     "cli": "tsx src/cli.ts",
+    "remotion:studio": "npx remotion studio src/remotion/Root.tsx",
+    "remotion:render": "npx remotion render src/remotion/Root.tsx CardShorts",
     "test": "vitest run"
   },
   "dependencies": {
+    "@remotion/google-fonts": "^4.0.448",
+    "@remotion/player": "^4.0.448",
+    "@remotion/transitions": "^4.0.448",
     "ffmpeg-static": "^5.2.0",
-    "jszip": "^3.10.1",
     "framer-motion": "^11.11.9",
+    "jszip": "^3.10.1",
     "lucide-react": "^0.453.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "remotion": "^4.0.448"
   },
   "devDependencies": {
     "@types/node": "^24.6.0",

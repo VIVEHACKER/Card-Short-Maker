@@ -1,10 +1,16 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { createProjectFromBrief, recalculateProject } from "./lib/pipeline";
 import { hydrateProject, parseBriefPayload } from "./lib/project-io";
 import { renderProjectToMp4 } from "./lib/render-engine";
 import { buildRenderPackage } from "./lib/render-package";
+import { projectToCardShortsProps } from "./remotion/mappers";
+import { calculateCardShortsDuration } from "./remotion/CardShorts";
 import type { ExecutionMode } from "./types";
+
+const execFileAsync = promisify(execFile);
 
 async function main() {
 	const [command, ...argv] = process.argv.slice(2);
@@ -32,6 +38,16 @@ async function main() {
 
 	if (command === "render") {
 		await renderProject(options);
+		return;
+	}
+
+	if (command === "render-remotion") {
+		await renderRemotionProject(options);
+		return;
+	}
+
+	if (command === "export-props") {
+		await exportRemotionProps(options);
 		return;
 	}
 
@@ -149,6 +165,97 @@ async function renderProject(options: CliOptions) {
 	console.log(`Workspace: ${result.workspaceDir}`);
 }
 
+async function exportRemotionProps(options: CliOptions) {
+	const projectPath = requireOption(options, "project");
+	const project = hydrateProject(await readJson(projectPath));
+	const props = projectToCardShortsProps(project);
+
+	if (typeof options.theme === "string") {
+		props.themeName = options.theme;
+	}
+
+	const output = resolveOutput(
+		options.out,
+		path.join(
+			path.dirname(resolveInput(projectPath)),
+			`${slugify(project.brief.title)}-remotion-props.json`,
+		),
+	);
+
+	await writeJson(output, props);
+	console.log(`Remotion props exported: ${output}`);
+	console.log(`Scenes: ${props.scenes.length}`);
+	console.log(
+		`Duration: ${calculateCardShortsDuration(props.scenes)} frames (${(calculateCardShortsDuration(props.scenes) / 30).toFixed(1)}s)`,
+	);
+}
+
+async function renderRemotionProject(options: CliOptions) {
+	const projectPath = requireOption(options, "project");
+	const project = hydrateProject(await readJson(projectPath));
+	const props = projectToCardShortsProps(project);
+
+	if (typeof options.theme === "string") {
+		props.themeName = options.theme;
+	}
+
+	const outDir = resolveOutput(
+		options.out,
+		path.join(path.dirname(resolveInput(projectPath)), "render-output"),
+	);
+
+	await fs.mkdir(outDir, { recursive: true });
+
+	// Write props file for Remotion
+	const propsFile = path.join(outDir, "_remotion-props.json");
+	await writeJson(propsFile, props);
+
+	const outputFile =
+		typeof options.output === "string" && options.output.trim()
+			? path.resolve(process.cwd(), options.output)
+			: path.join(outDir, `${slugify(project.brief.title)}.mp4`);
+
+	const rootPath = path.resolve(__dirname, "remotion/Root.tsx");
+
+	console.log("Rendering with Remotion...");
+	console.log(`Scenes: ${props.scenes.length}`);
+	console.log(`Output: ${outputFile}`);
+
+	try {
+		const { stdout, stderr } = await execFileAsync(
+			"npx",
+			[
+				"remotion",
+				"render",
+				rootPath,
+				"CardShorts",
+				"--output",
+				outputFile,
+				"--props",
+				propsFile,
+				"--codec",
+				"h264",
+			],
+			{
+				windowsHide: true,
+				timeout: 300000,
+				cwd: path.resolve(__dirname, ".."),
+			},
+		);
+		if (stdout) console.log(stdout);
+		if (stderr) console.error(stderr);
+		console.log(`Rendered: ${outputFile}`);
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		console.error(`Remotion render failed: ${message}`);
+		console.log("\nFallback: use FFmpeg render instead:");
+		console.log(
+			`  npm run cli -- render --project ${projectPath} --out ${outDir}`,
+		);
+		process.exitCode = 1;
+	}
+}
+
 function parseArgs(argv: string[]): CliOptions {
 	const options: CliOptions = {};
 
@@ -224,10 +331,12 @@ function printHelp() {
 	console.log(`Card Short Maker CLI
 
 Commands:
-  generate --brief ./examples/sample-brief.json [--script ./script.txt] [--mode local|byo-api|hybrid] [--out ./project.json]
-  qa --project ./project.json [--json]
-  package --project ./project.json [--out ./render-pack]
-  render --project ./project.json [--out ./render-output] [--output ./video.mp4] [--ffmpeg C:\\ffmpeg\\bin\\ffmpeg.exe] [--no-tts]
+  generate          --brief ./examples/sample-brief.json [--script ./script.txt] [--mode local|byo-api|hybrid] [--out ./project.json]
+  qa                --project ./project.json [--json]
+  package           --project ./project.json [--out ./render-pack]
+  render            --project ./project.json [--out ./render-output] [--output ./video.mp4] [--ffmpeg PATH] [--no-tts]
+  render-remotion   --project ./project.json [--out ./render-output] [--output ./video.mp4] [--theme dark|neon|warm|clean]
+  export-props      --project ./project.json [--out ./props.json] [--theme dark|neon|warm|clean]
 `);
 }
 
@@ -242,7 +351,8 @@ type CliOptions = Partial<
 		| "ffmpeg"
 		| "json"
 		| "help"
-		| "no-tts",
+		| "no-tts"
+		| "theme",
 		string | boolean
 	>
 >;

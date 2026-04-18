@@ -66,6 +66,10 @@ export interface Scene {
   subtitles: SubtitleBlock;
   voice: VoiceSpec;
   notes: string;
+  /** Layout template — assigned automatically by role */
+  layout?: string;
+  /** Transition type between scenes */
+  transition?: string;
 }
 
 export interface QuantitativeQa {
@@ -108,6 +112,10 @@ export interface ShortsProject {
   updatedAt: string;
   readiness: number;
   status: ProjectStatus;
+  /** BGM audio URL (optional) */
+  bgmUrl?: string;
+  /** BGM preset ID for auto-matching */
+  bgmPresetId?: string;
 }
 
 export interface RenderManifest {

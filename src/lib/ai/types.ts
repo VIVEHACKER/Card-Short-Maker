@@ -62,6 +62,7 @@ export interface TTSResponse {
 export type PipelineStage =
 	| "idle"
 	| "generating-script"
+	| "searching-stock"
 	| "generating-images"
 	| "generating-tts"
 	| "finalizing";

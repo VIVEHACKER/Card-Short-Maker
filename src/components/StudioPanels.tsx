@@ -1,6 +1,8 @@
 import { motion } from "framer-motion";
-import { BadgeCheck, FileJson2 } from "lucide-react";
+import { BadgeCheck, FileJson2, Play, Layers3 } from "lucide-react";
+import { useState } from "react";
 import type { RenderPackage, Scene, ShortsProject } from "../types";
+import { RemotionPreview } from "./RemotionPreview";
 
 export function BriefOverview({ project }: { project: ShortsProject }) {
 	return (
@@ -53,9 +55,35 @@ export function EditorCanvas({
 	scene: Scene;
 	onSelectScene: (sceneId: string) => void;
 }) {
+	const [previewMode, setPreviewMode] = useState<"card" | "remotion">("card");
+
 	return (
 		<div className="preview-stack">
-			<PhonePreview project={project} scene={scene} />
+			<div className="preview-mode-toggle">
+				<button
+					type="button"
+					className={`mode-btn ${previewMode === "card" ? "mode-btn--active" : ""}`}
+					onClick={() => setPreviewMode("card")}
+				>
+					<Layers3 size={14} />
+					카드
+				</button>
+				<button
+					type="button"
+					className={`mode-btn ${previewMode === "remotion" ? "mode-btn--active" : ""}`}
+					onClick={() => setPreviewMode("remotion")}
+				>
+					<Play size={14} />
+					모션
+				</button>
+			</div>
+
+			{previewMode === "card" ? (
+				<PhonePreview project={project} scene={scene} />
+			) : (
+				<RemotionPreview project={project} />
+			)}
+
 			<Timeline
 				activeSceneId={scene.id}
 				scenes={project.scenes}

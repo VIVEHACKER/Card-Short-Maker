@@ -7,6 +7,9 @@ import { resolveProvider } from "../lib/ai/registry";
 import type { PipelineProgress } from "../lib/ai/types";
 import type { Brief, ExecutionMode, Scene, ShortsProject } from "../types";
 import { estimateSceneCount } from "../lib/ai/prompts/script";
+import { hasStockProvider, findStockImagesForScenes } from "../lib/stock";
+import { isLocalTTSAvailable, localTTS } from "../lib/ai/providers/local-tts";
+import { optimizePacing } from "../lib/pacing";
 
 export interface AIGenerationResult {
 	project: ShortsProject;
@@ -87,85 +90,165 @@ export function useAIPipeline() {
 					runtimeMode: options?.runtimeMode,
 				});
 
-				// ── 3. 이미지 생성 (개별 실패 허용) ──
+				// ── 3a. 스톡 미디어 검색 (무료 — 우선 실행) ──
 				const sceneCount = project.scenes.length;
 				let imageSuccessCount = 0;
+				const stockAvailable = hasStockProvider();
 
-				setProgress({
-					stage: "generating-images",
-					current: 0,
-					total: sceneCount,
-					message: `이미지 생성 중 (0/${sceneCount})...`,
-				});
-
-				for (let i = 0; i < sceneCount; i++) {
-					if (controller.signal.aborted) break;
-
-					const scene = project.scenes[i]!;
-					try {
-						const result = await generateImage(
-							{
-								prompt: scene.text,
-								style: scene.media.style,
-								aspectRatio: "9:16" as const,
-								sceneRole: scene.role,
-							},
-							controller.signal,
-						);
-						scene.media.generatedImageUrl = result.imageUrl;
-						imageSuccessCount++;
-					} catch (error) {
-						console.error(`[Pipeline] 이미지 ${i + 1} 실패:`, error);
-						const msg =
-							error instanceof Error ? error.message : String(error);
-						errors.push(`이미지 ${i + 1}: ${msg}`);
-						setProgress({
-							stage: "generating-images",
-							current: i + 1,
-							total: sceneCount,
-							message: `이미지 ${i + 1} 실패: ${msg.slice(0, 80)}`,
-						});
-						continue;
-					}
-
+				if (stockAvailable) {
 					setProgress({
-						stage: "generating-images",
-						current: i + 1,
+						stage: "searching-stock",
+						current: 0,
 						total: sceneCount,
-						message: `이미지 생성 중 (${i + 1}/${sceneCount})...`,
+						message: "스톡 이미지 검색 중...",
 					});
+
+					try {
+						const queries = project.scenes.map((s) => ({
+							query: s.media.query,
+							language: brief.language,
+						}));
+
+						const stockResults = await findStockImagesForScenes(
+							queries,
+							controller.signal,
+							2,
+							(done, total) => {
+								setProgress({
+									stage: "searching-stock",
+									current: done,
+									total,
+									message: `스톡 검색 중 (${done}/${total})...`,
+								});
+							},
+						);
+
+						for (let i = 0; i < sceneCount; i++) {
+							const result = stockResults[i];
+							if (result) {
+								project.scenes[i]!.media.generatedImageUrl = result.url;
+								project.scenes[i]!.media.sourceHint = `${result.provider} — ${result.photographer ?? "unknown"}`;
+								imageSuccessCount++;
+							}
+						}
+
+						console.log(
+							`[Pipeline] 스톡 검색: ${imageSuccessCount}/${sceneCount} 성공`,
+						);
+					} catch (error) {
+						console.error("[Pipeline] 스톡 검색 실패:", error);
+					}
 				}
 
-				// ── 4. TTS 생성 (개별 실패 허용) ──
+				// ── 3b. AI 이미지 생성 (스톡 미커버 장면만 — 폴백) ──
+				const uncoveredScenes = project.scenes
+					.map((s, i) => ({ scene: s, index: i }))
+					.filter((item) => !item.scene.media.generatedImageUrl);
+
+				if (uncoveredScenes.length > 0) {
+					setProgress({
+						stage: "generating-images",
+						current: 0,
+						total: uncoveredScenes.length,
+						message: `AI 이미지 생성 중 (0/${uncoveredScenes.length})...`,
+					});
+
+					for (let j = 0; j < uncoveredScenes.length; j++) {
+						if (controller.signal.aborted) break;
+
+						const { scene, index: sceneIdx } = uncoveredScenes[j]!;
+						try {
+							const result = await generateImage(
+								{
+									prompt: scene.text,
+									style: scene.media.style,
+									aspectRatio: "9:16" as const,
+									sceneRole: scene.role,
+								},
+								controller.signal,
+							);
+							scene.media.generatedImageUrl = result.imageUrl;
+							scene.media.sourceHint = `AI — ${result.provider}`;
+							imageSuccessCount++;
+						} catch (error) {
+							console.error(
+								`[Pipeline] AI 이미지 ${sceneIdx + 1} 실패:`,
+								error,
+							);
+							const msg =
+								error instanceof Error ? error.message : String(error);
+							errors.push(`이미지 ${sceneIdx + 1}: ${msg}`);
+							setProgress({
+								stage: "generating-images",
+								current: j + 1,
+								total: uncoveredScenes.length,
+								message: `이미지 ${sceneIdx + 1} 실패: ${msg.slice(0, 80)}`,
+							});
+							continue;
+						}
+
+						setProgress({
+							stage: "generating-images",
+							current: j + 1,
+							total: uncoveredScenes.length,
+							message: `AI 이미지 생성 중 (${j + 1}/${uncoveredScenes.length})...`,
+						});
+					}
+				}
+
+				// ── 4. TTS 생성 (로컬 우선 → 클라우드 폴백) ──
 				let ttsSuccessCount = 0;
+				const localTTSReady = await isLocalTTSAvailable();
 
 				setProgress({
 					stage: "generating-tts",
 					current: 0,
 					total: sceneCount,
-					message: `음성 생성 중 (0/${sceneCount})...`,
+					message: localTTSReady
+						? `로컬 음성 생성 중 (0/${sceneCount})...`
+						: `음성 생성 중 (0/${sceneCount})...`,
 				});
 
 				for (let i = 0; i < sceneCount; i++) {
 					if (controller.signal.aborted) break;
 
 					const scene = project.scenes[i]!;
-					try {
-						const result = await generateTTS(
-							{
-								text: scene.text,
-								language: brief.language,
-								speed: scene.voice.speed,
-								emotion: scene.voice.emotion,
-							},
-							controller.signal,
-						);
-						scene.voice.generatedAudioUrl = result.audioUrl;
-						ttsSuccessCount++;
-					} catch (error) {
-						const msg =
-							error instanceof Error ? error.message : String(error);
-						errors.push(`TTS ${i + 1}: ${msg}`);
+					const ttsRequest = {
+						text: scene.text,
+						language: brief.language,
+						speed: scene.voice.speed,
+						emotion: scene.voice.emotion,
+					};
+
+					let ttsSuccess = false;
+
+					// Try local TTS first (Piper/macOS say — free)
+					if (localTTSReady && !ttsSuccess) {
+						try {
+							const result = await localTTS(ttsRequest, controller.signal);
+							scene.voice.generatedAudioUrl = result.audioUrl;
+							scene.voice.provider = "piper";
+							ttsSuccessCount++;
+							ttsSuccess = true;
+						} catch (error) {
+							console.warn(
+								`[Pipeline] 로컬 TTS ${i + 1} 실패, 클라우드 폴백:`,
+								error instanceof Error ? error.message : error,
+							);
+						}
+					}
+
+					// Fallback to cloud TTS
+					if (!ttsSuccess) {
+						try {
+							const result = await generateTTS(ttsRequest, controller.signal);
+							scene.voice.generatedAudioUrl = result.audioUrl;
+							ttsSuccessCount++;
+						} catch (error) {
+							const msg =
+								error instanceof Error ? error.message : String(error);
+							errors.push(`TTS ${i + 1}: ${msg}`);
+						}
 					}
 
 					setProgress({
@@ -238,7 +321,15 @@ function buildProjectFromAIScript(
 	const count = lines.length || 6;
 	const roles = assignRoles(count);
 	const targetDur = brief.targetDuration;
-	const durations = distributeDurations(targetDur, roles);
+
+	// Use smart pacing based on text content (falls back to proportional distribution)
+	const pacingInputs = lines.map((text, i) => ({
+		text,
+		role: roles[i] ?? ("build" as const),
+		language: brief.language,
+		subtitleLines: splitSubtitle(text),
+	}));
+	const durations = optimizePacing(pacingInputs, targetDur);
 
 	const scenes: Scene[] = lines.map((text, i) => ({
 		id: `scene-${i + 1}`,
@@ -269,6 +360,8 @@ function buildProjectFromAIScript(
 						: "neutral",
 		},
 		notes: "",
+		layout: assignLayout(text, roles[i] ?? "build"),
+		transition: assignTransition(assignLayout(text, roles[i] ?? "build")),
 	}));
 
 	const qa = quickQa(brief, scenes);
@@ -323,6 +416,34 @@ function buildContextualQuery(
 				? "vibrant dynamic"
 				: "clean editorial";
 	return `${topic} ${sceneWords} ${mood}`.trim();
+}
+
+/** Auto-assign layout based on role and text content */
+function assignLayout(text: string, role: SceneRole): string {
+	if (role === "hook") return "fullBleed";
+	if (role === "cta") return "minimal";
+	if (role === "payoff") return "quote";
+
+	// Build scenes — detect content patterns
+	if (/\d[\d,.]*\s*%/.test(text)) return "stat";
+	if (/vs\.?|하지만|반면|그러나/i.test(text)) return "comparison";
+	if (/[,;·]/.test(text) && text.split(/[,;·]/).length >= 3) return "list";
+
+	return "split";
+}
+
+/** Auto-assign transition based on layout */
+function assignTransition(layout: string): string {
+	switch (layout) {
+		case "fullBleed": return "scale";
+		case "split": return "slideUp";
+		case "quote": return "fade";
+		case "stat": return "flip";
+		case "list": return "slideLeft";
+		case "comparison": return "wipe";
+		case "minimal": return "fade";
+		default: return "fade";
+	}
 }
 
 function roleStyle(role: SceneRole): string {
