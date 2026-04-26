@@ -115,7 +115,7 @@ describe("ai config hardening", () => {
 
 		const settings = loadAISettings();
 		expect(settings.providers.openai.apiKey).toBe("sk-legacy-key");
-		expect(sessionStorage.getItem(SECRETS_KEY)).toContain("sk-legacy-key");
+		expect(localStorage.getItem(SECRETS_KEY)).toContain("sk-legacy-key");
 
 		const persisted = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}") as {
 			providers?: { openai?: { apiKey?: string } };
@@ -123,13 +123,13 @@ describe("ai config hardening", () => {
 		expect(persisted.providers?.openai?.apiKey ?? "").toBe("");
 	});
 
-	it("stores secrets in sessionStorage instead of localStorage", () => {
+	it("stores secrets in localStorage (persisted across sessions)", () => {
 		const settings = loadAISettings();
 		settings.providers.openai.apiKey = "sk-session-only";
 		settings.providers.openai.enabled = true;
 		saveAISettings(settings);
 
-		expect(sessionStorage.getItem(SECRETS_KEY)).toContain("sk-session-only");
+		expect(localStorage.getItem(SECRETS_KEY)).toContain("sk-session-only");
 		expect(localStorage.getItem(STORAGE_KEY)).not.toContain("sk-session-only");
 	});
 

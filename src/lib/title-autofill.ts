@@ -27,8 +27,37 @@ export function buildAutoDraftFromTitle(
 
 	return {
 		brief,
-		script: "",
+		script: buildScriptTemplate(topic, intent),
 	};
+}
+
+function buildScriptTemplate(topic: string, intent: Brief["intent"]): string {
+	const lines: string[] = [];
+
+	if (intent === "story") {
+		lines.push(`[hook] ${topic} — 이런 일이 있었습니다`);
+		lines.push(`[build] ${topic}: 상황 설명`);
+		lines.push(`[build] ${topic}: 결정적 순간`);
+		lines.push(`[build] ${topic}: 결과와 교훈`);
+		lines.push(`[payoff] ${topic} — 핵심 메시지`);
+		lines.push(`[cta] 비슷한 경험이 있으신가요? 댓글로 알려주세요`);
+	} else if (intent === "opinion") {
+		lines.push(`[hook] ${topic} — 제 생각은 다릅니다`);
+		lines.push(`[build] ${topic}: 일반적인 시각`);
+		lines.push(`[build] ${topic}: 반론 근거 1`);
+		lines.push(`[build] ${topic}: 반론 근거 2`);
+		lines.push(`[payoff] ${topic} — 결론`);
+		lines.push(`[cta] 어떻게 생각하시나요? 댓글로 남겨주세요`);
+	} else {
+		lines.push(`[hook] ${topic} — 핵심만 알려드립니다`);
+		lines.push(`[build] ${topic}: 첫 번째 포인트`);
+		lines.push(`[build] ${topic}: 두 번째 포인트`);
+		lines.push(`[build] ${topic}: 세 번째 포인트`);
+		lines.push(`[payoff] ${topic} — 정리`);
+		lines.push(`[cta] 도움이 됐다면 좋아요와 구독 부탁드립니다`);
+	}
+
+	return lines.join("\n");
 }
 
 function normalizeTopic(value: string): string {
