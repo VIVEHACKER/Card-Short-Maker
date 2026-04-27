@@ -44,7 +44,27 @@ import { ErrorBanner } from "./components/ErrorBanner";
 import { useErrors } from "./hooks/useErrors";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useAutoSave } from "./hooks/useAutoSave";
-import { hydrateProject, hydrateProjects, parseBriefPayload } from "./lib/project-io";
+import { hydrateProject, parseBriefPayload } from "./lib/project-io";
+import {
+  createBlankProject,
+  createEmptyBrief,
+  loadProjectsFromStorage,
+} from "./lib/project-factory";
+import {
+  prettyQaLabel,
+  prettyQuantLabel,
+  prettyRole,
+  tabTitle,
+  type TabKey,
+} from "./lib/labels";
+import {
+  collectProjectObjectUrls,
+  downloadBlob,
+  downloadText,
+  hasPendingDraftEdits,
+  normalizeForDiff,
+  slugify,
+} from "./lib/app-utils";
 import {
   addSceneAfter,
   buildSubtitleBlock,
@@ -65,8 +85,6 @@ import { useAIConfig } from "./hooks/useAIConfig";
 import { useAIPipeline } from "./hooks/useAIPipeline";
 import { getAvailableProviders } from "./lib/ai/registry";
 import type { Brief, ExecutionMode, RenderPackage, SceneRole, ShortsProject } from "./types";
-
-type TabKey = "brief" | "editor" | "review" | "drafts" | "export";
 
 const NAV_TABS: Array<{ key: TabKey; label: string }> = [
   { key: "brief", label: "Brief" },
@@ -90,7 +108,7 @@ const PIPELINE_STAGES = [
 import { STORAGE_KEY_PROJECTS as STORAGE_KEY } from "./lib/constants";
 
 function App() {
-  const [projects, setProjects] = useState<ShortsProject[]>(() => loadProjects());
+  const [projects, setProjects] = useState<ShortsProject[]>(() => loadProjectsFromStorage());
   const [activeProjectId, setActiveProjectId] = useState(projects[0]?.id ?? "");
   const [activeTab, setActiveTab] = useState<TabKey>("editor");
   const [activeSceneId, setActiveSceneId] = useState(projects[0]?.scenes[0]?.id ?? "");
@@ -1143,155 +1161,6 @@ function App() {
       <ErrorBanner errors={structuredErrors} onDismiss={dismissError} />
     </div>
   );
-}
-
-function createEmptyBrief(): Brief {
-  return {
-    id: `brief-${Date.now()}`,
-    title: "",
-    topic: "",
-    intent: "info",
-    tone: "serious",
-    targetDuration: 30,
-    platform: "youtube",
-    language: "ko",
-    audience: "",
-    thesis: "",
-  };
-}
-
-function tabTitle(tab: TabKey): string {
-  const labels: Record<TabKey, string> = {
-    brief: "브리프와 구조 진단",
-    editor: "장면 편집과 타임라인",
-    review: "QA 리뷰 보드",
-    drafts: "장면 카드 보드",
-    export: "렌더 패키지",
-  };
-
-  return labels[tab];
-}
-
-function prettyQaLabel(label: string): string {
-  const map: Record<string, string> = {
-    overall: "Overall",
-    hookStrength: "Hook",
-    scriptFlow: "Script Flow",
-    visualFit: "Visual Fit",
-    subtitleReadability: "Subtitle",
-    pacing: "Pacing",
-    ctaFinish: "CTA / Finish",
-    originality: "Originality",
-    creatorPersona: "Persona",
-  };
-
-  return map[label] ?? label;
-}
-
-function prettyRole(role: SceneRole): string {
-  if (role === "hook") return "Hook";
-  if (role === "build") return "Build";
-  if (role === "payoff") return "Payoff";
-  return "CTA";
-}
-
-function prettyQuantLabel(label: string): string {
-  const map: Record<string, string> = {
-    subtitleDensity: "Subtitle density",
-    sceneDuration: "Scene duration",
-    audioSync: "Audio sync",
-    cutFrequency: "Cut frequency",
-  };
-
-  return map[label] ?? label;
-}
-
-function loadProjects(): ShortsProject[] {
-  const raw = window.localStorage.getItem(STORAGE_KEY);
-  if (!raw) return [createBlankProject()];
-
-  try {
-    const parsed = hydrateProjects(JSON.parse(raw) as unknown);
-    return parsed.length ? parsed : [createBlankProject()];
-  } catch {
-    return [createBlankProject()];
-  }
-}
-
-function createBlankProject(
-  options?: Partial<Pick<ShortsProject, "id" | "channel" | "preset" | "accent" | "updatedAt" | "status">> & {
-    runtimeMode?: ExecutionMode;
-  },
-): ShortsProject {
-  const brief = createEmptyBrief();
-
-  return createProjectFromBrief(brief, "", {
-    id: options?.id ?? `project-${Date.now()}`,
-    channel: options?.channel ?? "channel-a",
-    preset: options?.preset ?? "새 프로젝트",
-    accent: options?.accent ?? "#f2b36f",
-    runtimeMode: options?.runtimeMode ?? "local",
-    updatedAt: options?.updatedAt ?? "방금",
-    status: options?.status ?? "editing",
-  });
-}
-
-function hasPendingDraftEdits(
-	activeProject: ShortsProject,
-	draftBrief: Brief,
-	draftScript: string,
-	draftMode: ExecutionMode,
-): boolean {
-	return (
-		draftScript.trim() !== activeProject.script.trim() ||
-		draftMode !== activeProject.runtime.mode ||
-		draftBrief.topic !== activeProject.brief.topic ||
-		draftBrief.intent !== activeProject.brief.intent ||
-		draftBrief.tone !== activeProject.brief.tone ||
-		draftBrief.targetDuration !== activeProject.brief.targetDuration ||
-		draftBrief.platform !== activeProject.brief.platform ||
-		draftBrief.audience !== activeProject.brief.audience ||
-		draftBrief.thesis !== activeProject.brief.thesis
-	);
-}
-
-function collectProjectObjectUrls(projects: ShortsProject[]): Set<string> {
-	const urls = new Set<string>();
-
-	for (const project of projects) {
-		for (const scene of project.scenes) {
-			if (scene.media.generatedImageUrl?.startsWith("blob:")) {
-				urls.add(scene.media.generatedImageUrl);
-			}
-			if (scene.voice.generatedAudioUrl?.startsWith("blob:")) {
-				urls.add(scene.voice.generatedAudioUrl);
-			}
-		}
-	}
-
-	return urls;
-}
-
-function slugify(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9가-힣]+/g, "-");
-}
-
-function normalizeForDiff(value: string): string {
-  return value.replace(/\s+/g, " ").trim();
-}
-
-function downloadText(filename: string, content: string, mime: string) {
-  const blob = new Blob([content], { type: mime });
-  downloadBlob(filename, blob);
-}
-
-function downloadBlob(filename: string, blob: Blob) {
-  const url = window.URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.click();
-  window.URL.revokeObjectURL(url);
 }
 
 export default App;
