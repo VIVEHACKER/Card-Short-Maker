@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildRenderPackage } from "./render-package";
+import { buildRenderPackage, buildSrt } from "./render-package";
 import { hydrateProject } from "./project-io";
 
 function makeProject() {
@@ -40,5 +40,24 @@ describe("buildRenderPackage", () => {
 			l.startsWith("file "),
 		);
 		expect(fileLines.length).toBe(project.scenes.length);
+	});
+
+	it("buildSrt formats SRT with comma decimal separator", () => {
+		const srt = buildSrt(makeProject());
+		expect(srt).toMatch(/00:00:00,000 --> /);
+		// Index numbers
+		expect(srt).toMatch(/^1\n/);
+		expect(srt).toContain("\n2\n");
+	});
+
+	it("buildSrt timestamps are monotonically increasing", () => {
+		const srt = buildSrt(makeProject());
+		const matches = [...srt.matchAll(/(\d{2}):(\d{2}):(\d{2}),(\d{3}) --> /g)];
+		const seconds = matches.map(
+			([, h, m, s, ms]) => Number(h) * 3600 + Number(m) * 60 + Number(s) + Number(ms) / 1000,
+		);
+		for (let i = 1; i < seconds.length; i++) {
+			expect(seconds[i]).toBeGreaterThanOrEqual(seconds[i - 1]!);
+		}
 	});
 });
