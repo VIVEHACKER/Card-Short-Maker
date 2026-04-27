@@ -148,6 +148,10 @@ export interface RenderPackage {
   project: ShortsProject;
   manifest: RenderManifest;
   subtitlesSrt: string;
+  /** WebVTT formatted subtitles for HTML5 / web players. */
+  subtitlesVtt: string;
+  /** ASS / SubStation Alpha subtitles for advanced styling. */
+  subtitlesAss: string;
   ffmpegConcat: string;
   readme: string;
 }

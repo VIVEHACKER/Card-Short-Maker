@@ -1,4 +1,5 @@
 import { makeRenderManifest } from "./pipeline";
+import { buildAss, buildVtt } from "./subtitle-formats";
 import type { RenderPackage, ShortsProject } from "../types";
 
 export function buildRenderPackage(project: ShortsProject): RenderPackage {
@@ -8,6 +9,8 @@ export function buildRenderPackage(project: ShortsProject): RenderPackage {
     project,
     manifest,
     subtitlesSrt: buildSrt(project),
+    subtitlesVtt: buildVtt(project),
+    subtitlesAss: buildAss(project),
     ffmpegConcat: buildFfmpegConcat(project),
     readme: buildPackageReadme(project),
   };

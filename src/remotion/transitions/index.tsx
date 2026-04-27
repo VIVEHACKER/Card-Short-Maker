@@ -16,6 +16,8 @@ export type TransitionName =
   | "flip"
   | "wipe"
   | "scale"
+  | "blur"
+  | "zoomOut"
   | "none";
 
 interface TransitionConfig {
@@ -25,6 +27,66 @@ interface TransitionConfig {
 
 const SPRING_FAST = springTiming({ config: { damping: 20, stiffness: 100 }, durationInFrames: 12 });
 const SPRING_MED = springTiming({ config: { damping: 18, stiffness: 80 }, durationInFrames: 15 });
+
+/** Custom blur presentation — quick depth-of-field swap */
+function blurPresentation(): TransitionPresentation<Record<string, unknown>> {
+  return {
+    component: ({
+      children,
+      presentationDirection,
+      presentationProgress,
+    }: TransitionPresentationComponentProps<Record<string, unknown>>) => {
+      const isEntering = presentationDirection === "entering";
+      const progress = isEntering ? presentationProgress : 1 - presentationProgress;
+      const blur = (1 - progress) * 18;
+      return (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            opacity: progress,
+            filter: `blur(${blur.toFixed(2)}px)`,
+            willChange: "filter, opacity",
+          }}
+        >
+          {children}
+        </div>
+      );
+    },
+    props: {},
+  };
+}
+
+/** Custom zoom-out presentation — fade away while shrinking */
+function zoomOutPresentation(): TransitionPresentation<Record<string, unknown>> {
+  return {
+    component: ({
+      children,
+      presentationDirection,
+      presentationProgress,
+    }: TransitionPresentationComponentProps<Record<string, unknown>>) => {
+      const isEntering = presentationDirection === "entering";
+      const progress = isEntering ? presentationProgress : 1 - presentationProgress;
+      const s = isEntering
+        ? 1.15 - progress * 0.15
+        : 1 + (1 - progress) * 0.2;
+      return (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            opacity: progress,
+            transform: `scale(${s})`,
+            willChange: "transform, opacity",
+          }}
+        >
+          {children}
+        </div>
+      );
+    },
+    props: {},
+  };
+}
 
 /** Custom scale presentation — zoom in from center */
 function scalePresentation(): TransitionPresentation<Record<string, unknown>> {
@@ -85,6 +147,14 @@ const TRANSITIONS: Record<TransitionName, TransitionConfig> = {
   },
   scale: {
     presentation: scalePresentation(),
+    timing: SPRING_MED,
+  },
+  blur: {
+    presentation: blurPresentation(),
+    timing: SPRING_FAST,
+  },
+  zoomOut: {
+    presentation: zoomOutPresentation(),
     timing: SPRING_MED,
   },
   none: {
