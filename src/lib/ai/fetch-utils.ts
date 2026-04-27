@@ -72,10 +72,13 @@ export async function aiFetch(options: FetchOptions): Promise<Response> {
 				throw lastError;
 			}
 
-			// 5xx — retry with exponential backoff (transient server errors)
+			// 5xx with non-idempotent verbs (POST/PUT/PATCH/DELETE) — do not retry
+			// to avoid double-billing when the server processed the request before
+			// returning the error. GET/HEAD are safe to retry.
 			if (response.status >= 500 && response.status < 600) {
-				lastError = new AINetworkError(provider, capability);
-				if (attempt < maxRetries) {
+				const idempotent = method.toUpperCase() === "GET" || method.toUpperCase() === "HEAD";
+				if (idempotent && attempt < maxRetries) {
+					lastError = new AINetworkError(provider, capability);
 					await sleep(backoffMs(attempt));
 					continue;
 				}
@@ -142,10 +145,12 @@ export async function aiFetchBlob(options: FetchOptions): Promise<string> {
 /**
  * Exponential backoff with full jitter.
  * Attempt 0 → ~750ms, 1 → ~1500ms, 2 → ~3000ms (capped at 15s).
+ *
+ * `random` is injectable for deterministic tests.
  */
-export function backoffMs(attempt: number): number {
+export function backoffMs(attempt: number, random: () => number = Math.random): number {
 	const expo = Math.min(BACKOFF_CAP_MS, BACKOFF_BASE_MS * 2 ** attempt);
-	const jitter = Math.floor(Math.random() * JITTER_MS);
+	const jitter = Math.floor(random() * JITTER_MS);
 	return expo + jitter;
 }
 

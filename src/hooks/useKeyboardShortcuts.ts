@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 export interface ShortcutBinding {
 	/** key as reported by KeyboardEvent.key — case-insensitive. */
@@ -31,11 +31,19 @@ function matches(event: KeyboardEvent, b: ShortcutBinding): boolean {
 	return true;
 }
 
+/**
+ * Registers a single keydown listener for the lifetime of the component.
+ * Bindings are mirrored into a ref so callers can pass a fresh array every render
+ * without triggering listener re-registration.
+ */
 export function useKeyboardShortcuts(bindings: ShortcutBinding[]): void {
+	const bindingsRef = useRef(bindings);
+	bindingsRef.current = bindings;
+
 	useEffect(() => {
 		function onKeyDown(event: KeyboardEvent) {
 			const typing = isTypingContext(event);
-			for (const binding of bindings) {
+			for (const binding of bindingsRef.current) {
 				if (!matches(event, binding)) continue;
 				if (typing && !binding.allowInInput) continue;
 				if (binding.preventDefault !== false) event.preventDefault();
@@ -45,5 +53,5 @@ export function useKeyboardShortcuts(bindings: ShortcutBinding[]): void {
 		}
 		window.addEventListener("keydown", onKeyDown);
 		return () => window.removeEventListener("keydown", onKeyDown);
-	}, [bindings]);
+	}, []);
 }

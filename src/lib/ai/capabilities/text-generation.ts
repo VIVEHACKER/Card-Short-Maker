@@ -7,15 +7,23 @@ import { anthropicGenerateText } from "../providers/anthropic";
 import { cacheKey, getCached, setCached } from "../cache";
 import type { TextGenerationRequest, TextGenerationResponse } from "../types";
 
+export interface GenerateScriptOptions {
+	/** Set true to bypass the response cache (e.g. user clicks "regenerate"). */
+	bypassCache?: boolean;
+}
+
 export async function generateScript(
 	request: TextGenerationRequest,
 	signal?: AbortSignal,
+	options: GenerateScriptOptions = {},
 ): Promise<TextGenerationResponse> {
 	const preferred = resolveProvider("text");
 
 	const key = cacheKey("text", { request, preferred });
-	const cached = getCached<TextGenerationResponse>(key);
-	if (cached) return cached;
+	if (!options.bypassCache) {
+		const cached = getCached<TextGenerationResponse>(key);
+		if (cached) return cached;
+	}
 
 	const response = await withFallback("text", preferred, async (provider) => {
 		try {

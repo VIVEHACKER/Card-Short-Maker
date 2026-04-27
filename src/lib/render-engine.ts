@@ -70,18 +70,27 @@ export async function renderProjectToMp4(
 
 		if (options.withTts !== false) {
 			const audioPath = path.join(audioDir, `${scene.id}.wav`);
-			const { voice } = await synthesizeSceneAudio({
-				text: scene.text,
-				outputPath: audioPath,
-				language: options.project.brief.language,
-				preferredVoice:
-					options.project.brief.language === "ko"
-						? "Microsoft Heami Desktop"
-						: undefined,
-				speed: scene.voice.speed,
-			});
-
-			audioInput = { args: ["-i", audioPath], voice };
+			try {
+				const { voice } = await synthesizeSceneAudio({
+					text: scene.text,
+					outputPath: audioPath,
+					language: options.project.brief.language,
+					preferredVoice:
+						options.project.brief.language === "ko"
+							? "Microsoft Heami Desktop"
+							: undefined,
+					speed: scene.voice.speed,
+				});
+				audioInput = { args: ["-i", audioPath], voice };
+			} catch (error) {
+				// TTS failed for this scene — fall back to silent audio so the
+				// render still produces a video. Surface the issue on stderr so
+				// it's not invisible.
+				const reason = error instanceof Error ? error.message : String(error);
+				console.warn(
+					`[render-engine] scene ${scene.id} TTS 실패, 무음 폴백: ${reason}`,
+				);
+			}
 		}
 
 		const segmentPath = path.join(

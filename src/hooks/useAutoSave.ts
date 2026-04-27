@@ -11,6 +11,9 @@ export interface AutoSaveOptions<T> {
 /**
  * Debounce-and-interval hybrid: saves on every change after debounceMs of quiet,
  * and additionally enforces a maximum gap (intervalMs) between saves.
+ *
+ * The interval is fully torn down when `enabled` flips to false or `intervalMs`
+ * changes — preventing stale/duplicate timers.
  */
 export function useAutoSave<T>({
 	value,
@@ -22,35 +25,29 @@ export function useAutoSave<T>({
 	const savedRef = useRef<T>(value);
 	const lastSaveAtRef = useRef<number>(Date.now());
 	const debounceTimerRef = useRef<number | null>(null);
-	const intervalTimerRef = useRef<number | null>(null);
+	const valueRef = useRef<T>(value);
+	valueRef.current = value;
 	const onSaveRef = useRef(onSave);
 	onSaveRef.current = onSave;
 
 	useEffect(() => {
 		if (!enabled) return;
-		if (Object.is(savedRef.current, value)) return;
 
-		const flush = () => {
-			savedRef.current = value;
+		function flush(next: T) {
+			savedRef.current = next;
 			lastSaveAtRef.current = Date.now();
-			void onSaveRef.current(value);
-		};
-
-		if (debounceTimerRef.current !== null) {
-			window.clearTimeout(debounceTimerRef.current);
+			void onSaveRef.current(next);
 		}
-		debounceTimerRef.current = window.setTimeout(flush, debounceMs);
 
-		if (intervalTimerRef.current === null) {
-			intervalTimerRef.current = window.setInterval(() => {
-				const now = Date.now();
-				if (
-					now - lastSaveAtRef.current >= intervalMs &&
-					!Object.is(savedRef.current, value)
-				) {
-					flush();
-				}
-			}, Math.min(intervalMs, 5_000));
+		// Schedule debounced flush whenever value differs from last save.
+		if (!Object.is(savedRef.current, value)) {
+			if (debounceTimerRef.current !== null) {
+				window.clearTimeout(debounceTimerRef.current);
+			}
+			debounceTimerRef.current = window.setTimeout(() => {
+				flush(valueRef.current);
+				debounceTimerRef.current = null;
+			}, debounceMs);
 		}
 
 		return () => {
@@ -59,14 +56,24 @@ export function useAutoSave<T>({
 				debounceTimerRef.current = null;
 			}
 		};
-	}, [value, debounceMs, intervalMs, enabled]);
+	}, [value, debounceMs, enabled]);
 
 	useEffect(() => {
-		return () => {
-			if (intervalTimerRef.current !== null) {
-				window.clearInterval(intervalTimerRef.current);
-				intervalTimerRef.current = null;
+		if (!enabled) return;
+		const tickInterval = Math.min(intervalMs, 5_000);
+
+		const id = window.setInterval(() => {
+			const now = Date.now();
+			if (
+				now - lastSaveAtRef.current >= intervalMs &&
+				!Object.is(savedRef.current, valueRef.current)
+			) {
+				savedRef.current = valueRef.current;
+				lastSaveAtRef.current = now;
+				void onSaveRef.current(valueRef.current);
 			}
-		};
-	}, []);
+		}, tickInterval);
+
+		return () => window.clearInterval(id);
+	}, [intervalMs, enabled]);
 }

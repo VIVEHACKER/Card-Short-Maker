@@ -14,8 +14,7 @@ export async function generateImage(
 
 	const key = cacheKey("image", { request, preferred });
 	const cached = getCached<ImageGenerationResponse>(key);
-	// blob URLs become invalid after page reload, so we only trust memory cache.
-	if (cached && (cached.imageUrl.startsWith("blob:") ? false : true)) {
+	if (cached && !cached.imageUrl.startsWith("blob:")) {
 		return cached;
 	}
 
@@ -34,9 +33,10 @@ export async function generateImage(
 		}
 	});
 
-	// blob URLs only valid in current document — memoryOnly avoids stale entries on reload.
-	const memoryOnly = response.imageUrl.startsWith("blob:");
-	setCached(key, response, { memoryOnly });
+	// blob URLs only valid in current document; remote URLs persist across reload.
+	if (!response.imageUrl.startsWith("blob:")) {
+		setCached(key, response);
+	}
 	return response;
 }
 

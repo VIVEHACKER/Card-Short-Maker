@@ -50,6 +50,11 @@ export async function anthropicGenerateText(
 		content: Array<{ type: string; text: string }>;
 	};
 	const script = extractTextContent(data.content);
+	if (!script) {
+		throw new Error(
+			"Anthropic 응답에 텍스트 part가 없습니다 (tool_use 등 비텍스트 응답 가능).",
+		);
+	}
 	if (!hasUsableScript(script, maxScenes)) {
 		throw new Error("Anthropic이 품질 기준에 못 미치는 스크립트를 반환했습니다.");
 	}

@@ -33,8 +33,9 @@ export async function generateTTS(
 		}
 	});
 
-	const memoryOnly = response.audioUrl.startsWith("blob:");
-	setCached(key, response, { memoryOnly });
+	if (!response.audioUrl.startsWith("blob:")) {
+		setCached(key, response);
+	}
 	return response;
 }
 

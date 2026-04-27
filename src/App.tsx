@@ -152,6 +152,9 @@ function App() {
     setDraftScript(activeProject.script);
     setDraftMode(activeProject.runtime.mode);
     setActiveSceneId(activeProject.scenes[0]?.id ?? "");
+    // Intentionally only react to project *selection* changes. Within-project edits
+    // are tracked separately via `commitProject` and must not bulldoze draft state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeProjectId]);
 
   useEffect(() => {

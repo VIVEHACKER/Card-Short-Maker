@@ -75,6 +75,9 @@ export async function openaiGenerateText(
 			};
 			const script = extractTextContent(data.choices[0]?.message.content);
 
+			if (!script) {
+				throw new Error("OpenAI 응답에 텍스트 part가 없습니다 (tool_calls 등 비텍스트 응답 가능).");
+			}
 			if (!hasUsableScript(script, maxScenes)) {
 				throw new Error("OpenAI가 품질 기준에 못 미치는 스크립트를 반환했습니다.");
 			}

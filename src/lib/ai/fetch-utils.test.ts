@@ -15,6 +15,11 @@ describe("backoffMs", () => {
 		const value = backoffMs(20);
 		expect(value).toBeLessThanOrEqual(15_000 + 250);
 	});
+
+	it("is deterministic when random is injected", () => {
+		expect(backoffMs(0, () => 0.5)).toBe(750 + 125);
+		expect(backoffMs(1, () => 0)).toBe(1500);
+	});
 });
 
 describe("retryAfterMs", () => {
