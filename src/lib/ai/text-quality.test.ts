@@ -30,4 +30,37 @@ describe("hasUsableScript", () => {
 		].join("\n");
 		expect(hasUsableScript(valid, 6)).toBe(true);
 	});
+
+	it("rejects scripts with role markers (hook/build/payoff/cta)", () => {
+		const withMarkers = [
+			"hook: 첫 번째 라인입니다 충분히 길게 작성되어 있어야 합니다.",
+			"build: 두 번째 라인 역시 의미 있는 길이로 작성되어 있습니다.",
+			"build: 세 번째 라인 또한 다양성을 보장하기 위한 내용입니다.",
+			"build: 네 번째 라인 역시 다른 표현을 사용하여 작성되었습니다.",
+			"payoff: 다섯 번째 라인은 결론을 향해 의미 있게 마무리됩니다.",
+			"cta: 행동 유도 라인입니다.",
+		].join("\n");
+		expect(hasUsableScript(withMarkers, 6)).toBe(false);
+	});
+
+	it("rejects numbered scripts (1. 2. 3.)", () => {
+		const numbered = [
+			"1. 첫 번째 라인입니다 충분히 길게 작성되어 있어야 합니다.",
+			"2. 두 번째 라인 역시 의미 있는 길이로 작성되어 있습니다.",
+			"3. 세 번째 라인 또한 다양성을 보장하기 위한 내용입니다.",
+			"네 번째 라인 역시 다른 표현을 사용하여 작성되었습니다.",
+			"다섯 번째 라인은 결론을 향해 의미 있게 마무리됩니다.",
+			"여섯 번째 라인은 행동을 유도합니다.",
+		].join("\n");
+		expect(hasUsableScript(numbered, 6)).toBe(false);
+	});
+
+	it("requires at least 4 lines even when expectedLines is small", () => {
+		const threeLines = [
+			"첫 번째 의미 있는 라인입니다 충분히 길게 작성되어 있어야 합니다.",
+			"두 번째 라인 역시 의미 있는 길이로 작성되어 있습니다.",
+			"세 번째 라인 또한 다양성을 보장하기 위한 내용입니다.",
+		].join("\n");
+		expect(hasUsableScript(threeLines, 3)).toBe(false);
+	});
 });
