@@ -6,7 +6,6 @@ import {
 	AIRateLimitError,
 } from "./errors";
 import {
-	AI_FETCH_DEFAULT_BACKOFF_MS,
 	AI_FETCH_DEFAULT_TIMEOUT_MS,
 	AI_FETCH_MAX_RETRIES,
 } from "../constants";
@@ -23,9 +22,10 @@ interface FetchOptions {
 	maxRetries?: number;
 }
 
-const DEFAULT_TIMEOUT = AI_FETCH_DEFAULT_TIMEOUT_MS;
-const MAX_RETRIES = AI_FETCH_MAX_RETRIES;
-const BACKOFF_MS = AI_FETCH_DEFAULT_BACKOFF_MS;
+/** Base for exponential backoff: attempts wait BASE * 2^attempt + jitter (capped). */
+const BACKOFF_BASE_MS = 750;
+const BACKOFF_CAP_MS = 15_000;
+const JITTER_MS = 250;
 
 export async function aiFetch(options: FetchOptions): Promise<Response> {
 	const {
@@ -36,8 +36,8 @@ export async function aiFetch(options: FetchOptions): Promise<Response> {
 		headers = {},
 		body,
 		signal,
-		timeoutMs = DEFAULT_TIMEOUT,
-		maxRetries = MAX_RETRIES,
+		timeoutMs = AI_FETCH_DEFAULT_TIMEOUT_MS,
+		maxRetries = AI_FETCH_MAX_RETRIES,
 	} = options;
 
 	let lastError: AIProviderError | null = null;
@@ -45,8 +45,6 @@ export async function aiFetch(options: FetchOptions): Promise<Response> {
 	for (let attempt = 0; attempt <= maxRetries; attempt++) {
 		const controller = new AbortController();
 		const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
-		// 외부 signal이 있으면 연결
 		const onAbort = () => controller.abort();
 		signal?.addEventListener("abort", onAbort);
 
@@ -64,13 +62,23 @@ export async function aiFetch(options: FetchOptions): Promise<Response> {
 				throw new AIAuthError(provider, capability);
 			}
 
-			if (response.status === 429) {
+			if (response.status === 429 || response.status === 503) {
 				lastError = new AIRateLimitError(provider, capability);
 				if (attempt < maxRetries) {
-					await sleep(BACKOFF_MS[attempt] ?? 3000);
+					const wait = retryAfterMs(response) ?? backoffMs(attempt);
+					await sleep(wait);
 					continue;
 				}
 				throw lastError;
+			}
+
+			// 5xx — retry with exponential backoff (transient server errors)
+			if (response.status >= 500 && response.status < 600) {
+				lastError = new AINetworkError(provider, capability);
+				if (attempt < maxRetries) {
+					await sleep(backoffMs(attempt));
+					continue;
+				}
 			}
 
 			const text = await response.text().catch(() => "");
@@ -84,10 +92,7 @@ export async function aiFetch(options: FetchOptions): Promise<Response> {
 		} catch (error) {
 			if (error instanceof AIProviderError) throw error;
 
-			if (
-				error instanceof DOMException &&
-				error.name === "AbortError"
-			) {
+			if (error instanceof DOMException && error.name === "AbortError") {
 				if (signal?.aborted) {
 					throw new AIProviderError(
 						provider,
@@ -108,7 +113,7 @@ export async function aiFetch(options: FetchOptions): Promise<Response> {
 
 			lastError = new AINetworkError(provider, capability);
 			if (attempt < maxRetries) {
-				await sleep(BACKOFF_MS[attempt] ?? 3000);
+				await sleep(backoffMs(attempt));
 				continue;
 			}
 			throw new AIProviderError(
@@ -132,6 +137,31 @@ export async function aiFetchBlob(options: FetchOptions): Promise<string> {
 	const response = await aiFetch(options);
 	const blob = await response.blob();
 	return URL.createObjectURL(blob);
+}
+
+/**
+ * Exponential backoff with full jitter.
+ * Attempt 0 → ~750ms, 1 → ~1500ms, 2 → ~3000ms (capped at 15s).
+ */
+export function backoffMs(attempt: number): number {
+	const expo = Math.min(BACKOFF_CAP_MS, BACKOFF_BASE_MS * 2 ** attempt);
+	const jitter = Math.floor(Math.random() * JITTER_MS);
+	return expo + jitter;
+}
+
+/** Parse RFC 7231 `Retry-After` header. Supports seconds (number) and HTTP-date. */
+export function retryAfterMs(response: Response): number | null {
+	const header = response.headers.get("Retry-After");
+	if (!header) return null;
+	const seconds = Number(header);
+	if (Number.isFinite(seconds) && seconds >= 0) {
+		return Math.min(seconds * 1000, BACKOFF_CAP_MS);
+	}
+	const dateMs = Date.parse(header);
+	if (Number.isFinite(dateMs)) {
+		return Math.max(0, Math.min(dateMs - Date.now(), BACKOFF_CAP_MS));
+	}
+	return null;
 }
 
 function sleep(ms: number): Promise<void> {

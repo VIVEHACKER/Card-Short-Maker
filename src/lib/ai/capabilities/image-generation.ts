@@ -3,6 +3,7 @@ import { withFallback } from "../fallback";
 import { classifyError } from "../errors";
 import { openaiGenerateImage } from "../providers/openai";
 import { googleGenerateImage } from "../providers/google";
+import { cacheKey, getCached, setCached } from "../cache";
 import type { ImageGenerationRequest, ImageGenerationResponse } from "../types";
 
 export async function generateImage(
@@ -11,7 +12,14 @@ export async function generateImage(
 ): Promise<ImageGenerationResponse> {
 	const preferred = resolveProvider("image");
 
-	return withFallback("image", preferred, async (provider) => {
+	const key = cacheKey("image", { request, preferred });
+	const cached = getCached<ImageGenerationResponse>(key);
+	// blob URLs become invalid after page reload, so we only trust memory cache.
+	if (cached && (cached.imageUrl.startsWith("blob:") ? false : true)) {
+		return cached;
+	}
+
+	const response = await withFallback("image", preferred, async (provider) => {
 		try {
 			switch (provider) {
 				case "openai":
@@ -25,6 +33,11 @@ export async function generateImage(
 			throw classifyError(provider, "image", error);
 		}
 	});
+
+	// blob URLs only valid in current document — memoryOnly avoids stale entries on reload.
+	const memoryOnly = response.imageUrl.startsWith("blob:");
+	setCached(key, response, { memoryOnly });
+	return response;
 }
 
 /** 여러 이미지를 동시에 생성 (최대 concurrency개 병렬) */

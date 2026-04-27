@@ -8,6 +8,7 @@ import {
 	estimateSceneCount,
 } from "../prompts/script";
 import { hasUsableScript } from "../text-quality";
+import { extractTextContent } from "./_helpers";
 
 function headers(): Record<string, string> {
 	return {
@@ -48,12 +49,7 @@ export async function anthropicGenerateText(
 	const data = (await response.json()) as {
 		content: Array<{ type: string; text: string }>;
 	};
-	const script =
-		data.content
-			?.filter((block) => block.type === "text")
-			.map((block) => block.text)
-			.join("\n")
-			.trim() ?? "";
+	const script = extractTextContent(data.content);
 	if (!hasUsableScript(script, maxScenes)) {
 		throw new Error("Anthropic이 품질 기준에 못 미치는 스크립트를 반환했습니다.");
 	}

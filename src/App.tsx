@@ -40,6 +40,10 @@ import {
 } from "./components/StudioPanels";
 import { AISettingsPanel } from "./components/AISettingsPanel";
 import { GenerationProgress } from "./components/GenerationProgress";
+import { ErrorBanner } from "./components/ErrorBanner";
+import { useErrors } from "./hooks/useErrors";
+import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
+import { useAutoSave } from "./hooks/useAutoSave";
 import { hydrateProject, hydrateProjects, parseBriefPayload } from "./lib/project-io";
 import {
   addSceneAfter,
@@ -103,6 +107,7 @@ function App() {
 
   const { hasAnyProvider } = useAIConfig();
   const { generate: aiGenerate, cancel: aiCancel, progress: aiProgress, isGenerating } = useAIPipeline();
+  const { errors: structuredErrors, push: pushError, dismiss: dismissError } = useErrors();
 
   const deferredSearch = useDeferredValue(search);
 
@@ -134,6 +139,23 @@ function App() {
   useEffect(() => {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
   }, [projects]);
+
+  useAutoSave({
+    value: projects,
+    debounceMs: 800,
+    intervalMs: 30_000,
+    onSave: (next) => {
+      try {
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      } catch (error) {
+        pushError({
+          severity: "warn",
+          title: "자동 저장 실패",
+          detail: error instanceof Error ? error.message : String(error),
+        });
+      }
+    },
+  });
 
   useEffect(() => {
     if (!notice) return;
@@ -183,6 +205,58 @@ function App() {
     setActiveTab("brief");
     setNotice("저장된 프로젝트를 초기화하고 빈 프로젝트로 복구했습니다.");
   }
+
+  useKeyboardShortcuts([
+    {
+      key: "a",
+      shift: true,
+      handler: () => {
+        if (!activeProject || !activeScene) return;
+        handleAddScene();
+      },
+    },
+    {
+      key: "d",
+      meta: true,
+      handler: () => {
+        if (!activeProject || !activeScene) return;
+        handleDuplicateScene();
+      },
+    },
+    {
+      key: "Backspace",
+      shift: true,
+      handler: () => {
+        if (!activeProject || !activeScene) return;
+        handleDeleteScene();
+      },
+    },
+    {
+      key: "ArrowUp",
+      meta: true,
+      handler: () => {
+        if (!activeProject || !activeScene) return;
+        handleMoveScene("up");
+      },
+    },
+    {
+      key: "ArrowDown",
+      meta: true,
+      handler: () => {
+        if (!activeProject || !activeScene) return;
+        handleMoveScene("down");
+      },
+    },
+    {
+      key: "Enter",
+      meta: true,
+      allowInInput: true,
+      handler: () => {
+        if (isGenerating) return;
+        handleAIGenerate();
+      },
+    },
+  ]);
 
   if (!activeProject || !activeScene || !renderPackage) {
     return (
@@ -304,10 +378,23 @@ function App() {
         ? ` — ${firstError}`
         : "";
       setNotice(`${result.scriptProvider} 생성 완료 · ${statusParts.join(" · ")}${errorSummary}`);
+
+      for (const partialError of result.errors) {
+        pushError({
+          severity: "warn",
+          title: "AI 부분 실패",
+          detail: partialError,
+        });
+      }
     } catch (error) {
       // 스크립트 생성 자체가 실패한 경우만 여기에 도달
       const message = error instanceof Error ? error.message : "알 수 없는 오류";
       setNotice(`AI 생성 실패: ${message}`);
+      pushError({
+        severity: "error",
+        title: "AI 스크립트 생성 실패",
+        detail: message,
+      });
     }
   }
 
@@ -1053,6 +1140,7 @@ function App() {
 
       <AISettingsPanel open={showAISettings} onClose={() => setShowAISettings(false)} />
       <GenerationProgress progress={aiProgress} onCancel={aiCancel} />
+      <ErrorBanner errors={structuredErrors} onDismiss={dismissError} />
     </div>
   );
 }

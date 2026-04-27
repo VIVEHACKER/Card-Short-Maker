@@ -302,7 +302,7 @@ async function resolveFontFile() {
 	);
 }
 
-function wrapText(text: string, maxCompactLength: number) {
+export function wrapText(text: string, maxCompactLength: number) {
 	const words = text.split(/\s+/).filter(Boolean);
 	const lines: string[] = [];
 	let current = "";
@@ -332,14 +332,14 @@ function compactLength(value: string) {
 	return value.replace(/\s+/g, "").length;
 }
 
-function normalizeColor(value: string) {
+export function normalizeColor(value: string) {
 	return value.replace("#", "0x");
 }
 
-function escapeFilterValue(value: string) {
+export function escapeFilterValue(value: string) {
 	return value.replace(/\\/g, "/").replace(/:/g, "\\:").replace(/'/g, "\\'");
 }
 
-function slugify(value: string) {
+export function slugify(value: string) {
 	return value.toLowerCase().replace(/[^a-z0-9가-힣]+/g, "-");
 }

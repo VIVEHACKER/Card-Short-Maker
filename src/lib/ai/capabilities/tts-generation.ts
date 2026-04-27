@@ -3,6 +3,7 @@ import { withFallback } from "../fallback";
 import { classifyError } from "../errors";
 import { openaiTTS } from "../providers/openai";
 import { googleTTS } from "../providers/google";
+import { cacheKey, getCached, setCached } from "../cache";
 import type { TTSRequest, TTSResponse } from "../types";
 
 export async function generateTTS(
@@ -11,7 +12,13 @@ export async function generateTTS(
 ): Promise<TTSResponse> {
 	const preferred = resolveProvider("tts");
 
-	return withFallback("tts", preferred, async (provider) => {
+	const key = cacheKey("tts", { request, preferred });
+	const cached = getCached<TTSResponse>(key);
+	if (cached && !cached.audioUrl.startsWith("blob:")) {
+		return cached;
+	}
+
+	const response = await withFallback("tts", preferred, async (provider) => {
 		try {
 			switch (provider) {
 				case "openai":
@@ -25,6 +32,10 @@ export async function generateTTS(
 			throw classifyError(provider, "tts", error);
 		}
 	});
+
+	const memoryOnly = response.audioUrl.startsWith("blob:");
+	setCached(key, response, { memoryOnly });
+	return response;
 }
 
 /** 순차적으로 여러 TTS 생성 */

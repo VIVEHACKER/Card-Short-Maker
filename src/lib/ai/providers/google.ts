@@ -16,6 +16,7 @@ import {
 } from "../prompts/script";
 import { buildImagePrompt } from "../prompts/image";
 import { hasUsableScript } from "../text-quality";
+import { base64ToBlob, estimateTtsDuration } from "./_helpers";
 
 function apiKey(): string {
 	return getApiKey("google");
@@ -216,23 +217,7 @@ export async function googleTTS(
 
 	return {
 		audioUrl,
-		durationSeconds: estimateDuration(request.text, request.speed),
+		durationSeconds: estimateTtsDuration(request.text, request.speed),
 		provider: "google",
 	};
-}
-
-// --- Helpers ---
-
-function base64ToBlob(b64: string, type: string): Blob {
-	const bytes = atob(b64);
-	const buffer = new Uint8Array(bytes.length);
-	for (let i = 0; i < bytes.length; i++) {
-		buffer[i] = bytes.charCodeAt(i);
-	}
-	return new Blob([buffer], { type });
-}
-
-function estimateDuration(text: string, speed: number): number {
-	const chars = text.replace(/\s+/g, "").length;
-	return Math.max(1, chars / (5 * speed));
 }

@@ -16,6 +16,11 @@ import {
 } from "../prompts/script";
 import { buildImagePrompt } from "../prompts/image";
 import { hasUsableScript } from "../text-quality";
+import {
+	estimateTtsDuration,
+	extractTextContent,
+	resolveImageUrlFromItem,
+} from "./_helpers";
 
 function headers(): Record<string, string> {
 	return {
@@ -68,11 +73,11 @@ export async function openaiGenerateText(
 					};
 				}>;
 			};
-				const script = extractTextContent(data.choices[0]?.message.content);
+			const script = extractTextContent(data.choices[0]?.message.content);
 
-				if (!hasUsableScript(script, maxScenes)) {
-					throw new Error("OpenAI가 품질 기준에 못 미치는 스크립트를 반환했습니다.");
-				}
+			if (!hasUsableScript(script, maxScenes)) {
+				throw new Error("OpenAI가 품질 기준에 못 미치는 스크립트를 반환했습니다.");
+			}
 
 			return { script, provider: "openai", model };
 		} catch (error) {
@@ -126,7 +131,7 @@ export async function openaiGenerateImage(
 				}>;
 			};
 			const item = data.data[0];
-			const imageUrl = resolveImageUrl(item);
+			const imageUrl = resolveImageUrlFromItem(item);
 
 			return {
 				imageUrl,
@@ -173,60 +178,7 @@ export async function openaiTTS(
 
 	return {
 		audioUrl,
-		durationSeconds: estimateDuration(request.text, request.speed),
+		durationSeconds: estimateTtsDuration(request.text, request.speed),
 		provider: "openai",
 	};
-}
-
-// --- Helpers ---
-
-function base64ToBlob(b64: string, type: string): Blob {
-	const bytes = atob(b64);
-	const buffer = new Uint8Array(bytes.length);
-	for (let i = 0; i < bytes.length; i++) {
-		buffer[i] = bytes.charCodeAt(i);
-	}
-	return new Blob([buffer], { type });
-}
-
-function resolveImageUrl(item: {
-	b64_json?: string;
-	b64?: string;
-	url?: string;
-} | null | undefined): string {
-	if (item?.url) {
-		return item.url;
-	}
-
-	const raw = item?.b64_json ?? item?.b64;
-	if (raw) {
-		const blob = base64ToBlob(raw, "image/png");
-		return URL.createObjectURL(blob);
-	}
-
-	throw new Error("OpenAI 이미지 응답에서 결과를 찾지 못했습니다.");
-}
-
-function extractTextContent(
-	content: string | Array<{ type?: string; text?: string }> | undefined,
-): string {
-	if (typeof content === "string") {
-		return content.trim();
-	}
-
-	if (Array.isArray(content)) {
-		return content
-			.filter((part) => part.type === "text" || part.text)
-			.map((part) => part.text ?? "")
-			.join("\n")
-			.trim();
-	}
-
-	return "";
-}
-
-function estimateDuration(text: string, speed: number): number {
-	// 대략 한국어 5자/초, 영어 3단어/초 기준
-	const chars = text.replace(/\s+/g, "").length;
-	return Math.max(1, chars / (5 * speed));
 }

@@ -11,6 +11,7 @@ import { hasStockProvider, findStockImagesForScenes } from "../lib/stock";
 import { isLocalTTSAvailable, localTTS } from "../lib/ai/providers/local-tts";
 import { optimizePacing } from "../lib/pacing";
 import { trackSpan } from "../lib/diagnostics";
+import { matchBGMByTone } from "../lib/bgm-presets";
 
 export interface AIGenerationResult {
 	project: ShortsProject;
@@ -268,6 +269,15 @@ export function useAIPipeline() {
 				// ── 5. 취소 확인 — abort 시 부분 결과 커밋 방지 ──
 				if (controller.signal.aborted) {
 					throw new DOMException("AI 생성이 취소되었습니다.", "AbortError");
+				}
+
+				// ── 5b. BGM 자동 매칭 — 사용자가 지정 안 한 경우 톤 기반 추천 ──
+				if (!project.bgmPresetId) {
+					const matched = matchBGMByTone(brief.tone);
+					project.bgmPresetId = matched.id;
+					if (matched.url) {
+						project.bgmUrl = matched.url;
+					}
 				}
 
 				// ── 6. 완료 — 부분 성공도 프로젝트 반환 ──
