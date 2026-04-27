@@ -8,6 +8,8 @@ import { renderProjectToMp4 } from "./lib/render-engine";
 import { buildRenderPackage } from "./lib/render-package";
 import { projectToCardShortsProps } from "./remotion/mappers";
 import { calculateCardShortsDuration } from "./remotion/CardShorts";
+import { computeProjectMetrics } from "./lib/project-metrics";
+import { validateProject } from "./lib/validation";
 import type { ExecutionMode } from "./types";
 
 const execFileAsync = promisify(execFile);
@@ -51,7 +53,54 @@ async function main() {
 		return;
 	}
 
+	if (command === "metrics") {
+		await metricsProject(options);
+		return;
+	}
+
+	if (command === "doctor") {
+		await doctorProject(options);
+		return;
+	}
+
 	throw new Error(`Unknown command: ${command}`);
+}
+
+async function metricsProject(options: CliOptions) {
+	const projectPath = requireOption(options, "project");
+	const project = hydrateProject(await readJson(projectPath));
+	const metrics = computeProjectMetrics(project);
+	if (options.json) {
+		console.log(JSON.stringify(metrics, null, 2));
+		return;
+	}
+	console.log(`Project: ${project.brief.title}`);
+	console.log(`Scenes: ${metrics.sceneCount}`);
+	console.log(`Total duration: ${metrics.totalDuration}s`);
+	console.log(`Average scene: ${metrics.averageSceneDuration}s`);
+	console.log(`Subtitle CPS: ${metrics.subtitleCharsPerSecond}`);
+	console.log(`Voice covered: ${metrics.hasVoiceCount}/${metrics.sceneCount}`);
+	console.log(`Media covered: ${metrics.hasMediaCount}/${metrics.sceneCount}`);
+	console.log(`Roles: ${JSON.stringify(metrics.rolesBreakdown)}`);
+	console.log(`Sources: ${JSON.stringify(metrics.mediaSourceBreakdown)}`);
+}
+
+async function doctorProject(options: CliOptions) {
+	const projectPath = requireOption(options, "project");
+	const project = hydrateProject(await readJson(projectPath));
+	const result = validateProject(project);
+	if (options.json) {
+		console.log(JSON.stringify(result, null, 2));
+		process.exitCode = result.ok ? 0 : 1;
+		return;
+	}
+	console.log(`Project: ${project.brief.title}`);
+	console.log(`Status: ${result.ok ? "OK" : "FAIL"}`);
+	console.log(`Issues (${result.issues.length}):`);
+	for (const issue of result.issues) {
+		console.log(`  [${issue.severity}] ${issue.field}: ${issue.message}`);
+	}
+	process.exitCode = result.ok ? 0 : 1;
 }
 
 async function generateProject(options: CliOptions) {
@@ -347,6 +396,8 @@ Commands:
   render            --project ./project.json [--out ./render-output] [--output ./video.mp4] [--ffmpeg PATH] [--no-tts]
   render-remotion   --project ./project.json [--out ./render-output] [--output ./video.mp4] [--theme dark|neon|warm|clean]
   export-props      --project ./project.json [--out ./props.json] [--theme dark|neon|warm|clean]
+  metrics           --project ./project.json [--json]
+  doctor            --project ./project.json [--json]
 `);
 }
 

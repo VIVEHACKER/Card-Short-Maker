@@ -1,0 +1,13 @@
+{
+  "title": "Why AI Made You Work Longer Hours",
+  "topic": "ai adoption work hours review loop",
+  "intent": "info",
+  "tone": "serious",
+  "targetDuration": 36,
+  "platform": "youtube",
+  "language": "en",
+  "executionMode": "local",
+  "audience": "operators who adopted AI tools but feel busier than before",
+  "thesis": "AI accelerates output but the review and approval loops dominate the timeline if you never redesign decision rights.",
+  "script": "Why AI made you work longer hours.\nAI does generate faster, yet the review-and-approval loop after every output got longer.\nWhen humans must read every result before it ships, automation amplifies the bottleneck instead of removing it.\nThe fix isn't more speed — it's redrawing who decides what, and when."
+}

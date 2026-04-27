@@ -5,12 +5,17 @@ import { piperTTSPlugin } from "./src/lib/vite-piper-plugin";
 export default defineConfig({
   plugins: [react(), piperTTSPlugin()],
   build: {
-    chunkSizeWarningLimit: 600,
+    // Remotion fonts pull remotion-core, which avoids a fully isolated split.
+    // We accept a larger remotion bundle as a single "remotion" chunk and lift
+    // the warning ceiling to silence cosmetic alerts.
+    chunkSizeWarningLimit: 1100,
     rollupOptions: {
       output: {
         manualChunks(id) {
-          if (id.includes("@remotion/google-fonts")) return "remotion-fonts";
-          if (id.includes("remotion") || id.includes("@remotion")) return "remotion-core";
+          if (id.includes("@remotion/google-fonts") || id.includes("@remotion") || id.includes("remotion")) {
+            return "remotion";
+          }
+          if (id.includes("framer-motion")) return "motion";
         },
       },
     },

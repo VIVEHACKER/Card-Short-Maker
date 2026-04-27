@@ -192,6 +192,21 @@ Render without local TTS / 로컬 TTS 없이 렌더:
 npm run cli -- render --project ./examples/generated-project.json --no-tts
 ```
 
+Project metrics / 프로젝트 메트릭:
+
+```bash
+npm run cli -- metrics --project ./examples/generated-project.json
+npm run cli -- metrics --project ./examples/generated-project.json --json
+```
+
+Doctor (validation) / 검증 실행:
+
+```bash
+npm run cli -- doctor --project ./examples/generated-project.json
+# CI 친화 종료 코드 — 실패 시 1
+npm run cli -- doctor --project ./examples/generated-project.json --json
+```
+
 ## Project File / 프로젝트 파일 구조
 
 핵심은 자유 텍스트가 아니라 객체 계약입니다.
@@ -227,7 +242,9 @@ The `package` command creates the files below.
 
 - `project.json`: 전체 편집 상태 / full editable project state
 - `render-manifest.json`: 렌더용 장면 계약 / renderer-facing scene contract
-- `subtitles.srt`: 자막 타임라인 / subtitle timeline
+- `subtitles.srt`: SRT 자막 타임라인 / SRT subtitle timeline
+- `subtitles.vtt`: WebVTT (HTML5 / 웹 플레이어) / WebVTT for HTML5 players
+- `subtitles.ass`: ASS / SubStation Alpha (고급 스타일링) / ASS for advanced styling
 - `ffmpeg-concat.txt`: FFmpeg concat 템플릿 / FFmpeg concat template
 - `README.txt`: 패키지 메모 / package notes
 

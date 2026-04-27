@@ -71,16 +71,49 @@ UI는 프리미어의 축소판이 아닙니다.
 - 브리프 입력
 - 스크립트 기반 자동 씬 분해
 - 씬별 미디어 쿼리 생성
-- 자막 라인 분해
+- 자막 라인 분해 (SRT/WebVTT/ASS 동시 출력)
 - QA 점수와 수정 포인트 표시
-- 렌더 매니페스트 내보내기
+- 렌더 매니페스트 + Remotion 컴포지션
+- AI 파이프라인 (스크립트/이미지/TTS, 캐시 + 폴백)
+- 스톡 미디어 (Pexels/Pixabay) → AI 이미지 폴백
+- 로컬 TTS (Piper/macOS say) → 클라우드 TTS 폴백
+- 플랫폼별 안전영역 (YouTube/TikTok/Reels)
+- 렌더 패키지 + FFmpeg concat 템플릿
 
 아직 포함하지 않는 것:
 
-- 실제 FFmpeg 렌더 실행
-- TTS API 연동
-- 스톡/밈/GIF 자동 수집
-- 업로드 자동화
+- 데스크톱 패키징 (Electron/Tauri)
+- 멀티트랙 편집기 / 키프레임 UI
+- 협업/멀티유저
+- 업로드 자동화 (YouTube/TikTok API)
+
+## Module Map
+
+- `src/types.ts` — 도메인 계약 (Brief/Scene/QA/RenderPackage)
+- `src/lib/constants.ts` — 매직 상수 단일 소스 (FPS/타임아웃/스토리지키)
+- `src/lib/pipeline.ts` — 브리프 → 씬, QA 리포트 생성
+- `src/lib/pacing.ts` — 텍스트 길이 → 씬 길이 결정 (언어별 CPS)
+- `src/lib/validation.ts` — Brief/Scene/Project 검증
+- `src/lib/render-package.ts` — 렌더 패키지 (SRT/VTT/ASS/concat/README)
+- `src/lib/subtitle-formats.ts` — 자막 포맷 변환기
+- `src/lib/diagnostics.ts` — 구조화 스팬/타이밍 기록
+- `src/lib/ai/` — 프로바이더(OpenAI/Google/Anthropic) + 폴백 + 캐시
+- `src/lib/stock/` — Pexels/Pixabay 어댑터
+- `src/remotion/` — Remotion 컴포지션 (CardShorts, 8 레이아웃, 9 트랜지션, 13 테마)
+- `src/cli.ts` — generate / qa / package / render / metrics / doctor
+
+## CLI Surface
+
+```text
+generate         브리프 → 프로젝트 JSON
+qa               QA 재평가
+package          렌더 패키지 (json + srt + vtt + ass + concat)
+render           FFmpeg 기반 카드형 MP4
+render-remotion  Remotion 기반 MP4 (모션/트랜지션)
+export-props     Remotion <Composition> props 추출
+metrics          씬/시간/소스 메트릭
+doctor           프로젝트 검증 (CI 종료코드 1 = 실패)
+```
 
 ## Why This Matters
 
