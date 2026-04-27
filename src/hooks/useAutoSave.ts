@@ -58,11 +58,17 @@ export function useAutoSave<T>({
 		};
 	}, [value, debounceMs, enabled]);
 
+	const enabledRef = useRef(enabled);
+	enabledRef.current = enabled;
+
 	useEffect(() => {
 		if (!enabled) return;
 		const tickInterval = Math.min(intervalMs, 5_000);
 
 		const id = window.setInterval(() => {
+			// Re-check via ref so a tick scheduled before `enabled` flipped to
+			// false does not surprise-fire onSave after the consumer paused.
+			if (!enabledRef.current) return;
 			const now = Date.now();
 			if (
 				now - lastSaveAtRef.current >= intervalMs &&

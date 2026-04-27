@@ -21,6 +21,12 @@ import {
 	extractTextContent,
 	resolveImageUrlFromItem,
 } from "./_helpers";
+import { AIAuthError, AIKeyMissingError } from "../errors";
+
+/** Auth/quota errors should not waste time falling back to the next model. */
+function isNonRetryableAuthError(error: unknown): boolean {
+	return error instanceof AIAuthError || error instanceof AIKeyMissingError;
+}
 
 function headers(): Record<string, string> {
 	return {
@@ -85,6 +91,7 @@ export async function openaiGenerateText(
 			return { script, provider: "openai", model };
 		} catch (error) {
 			lastError = error;
+			if (isNonRetryableAuthError(error)) throw error;
 		}
 	}
 
@@ -143,6 +150,7 @@ export async function openaiGenerateImage(
 			};
 		} catch (error) {
 			lastError = error;
+			if (isNonRetryableAuthError(error)) throw error;
 		}
 	}
 
