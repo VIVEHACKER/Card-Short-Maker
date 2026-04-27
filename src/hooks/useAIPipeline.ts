@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-import { createProjectFromBrief, buildRuntimeProfile } from "../lib/pipeline";
+import { buildRuntimeProfile } from "../lib/pipeline";
 import { generateScript } from "../lib/ai/capabilities/text-generation";
 import { generateImage } from "../lib/ai/capabilities/image-generation";
 import { generateTTS } from "../lib/ai/capabilities/tts-generation";
@@ -10,6 +10,7 @@ import { estimateSceneCount } from "../lib/ai/prompts/script";
 import { hasStockProvider, findStockImagesForScenes } from "../lib/stock";
 import { isLocalTTSAvailable, localTTS } from "../lib/ai/providers/local-tts";
 import { optimizePacing } from "../lib/pacing";
+import { trackSpan } from "../lib/diagnostics";
 
 export interface AIGenerationResult {
 	project: ShortsProject;
@@ -69,9 +70,14 @@ export function useAIPipeline() {
 				});
 
 				const maxScenes = estimateSceneCount(brief);
-				const textResult = await generateScript(
-					{ brief, language: brief.language, maxScenes },
-					controller.signal,
+				const textResult = await trackSpan(
+					"pipeline.script",
+					{ language: brief.language, maxScenes },
+					() =>
+						generateScript(
+							{ brief, language: brief.language, maxScenes },
+							controller.signal,
+						),
 				);
 
 				// ── 2. AI 스크립트를 직접 씬으로 변환 (로컬 템플릿 우회) ──
@@ -389,17 +395,6 @@ function assignRoles(count: number): SceneRole[] {
 		if (i === count - 2) return "payoff";
 		return "build";
 	});
-}
-
-function distributeDurations(target: number, roles: SceneRole[]): number[] {
-	const w = roles.map((r) =>
-		r === "hook" ? 0.85 : r === "payoff" ? 1.1 : r === "cta" ? 0.85 : 1,
-	);
-	const total = w.reduce((a, b) => a + b, 0);
-	const d = w.map((v) => Math.round((target * v) / total * 10) / 10);
-	const gap = Math.round((target - d.reduce((a, b) => a + b, 0)) * 10) / 10;
-	if (d.length) d[d.length - 1] += gap;
-	return d.map((v) => Math.max(1.8, Math.min(7.8, v)));
 }
 
 function buildContextualQuery(

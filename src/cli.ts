@@ -128,6 +128,16 @@ async function packageProject(options: CliOptions) {
 		"utf8",
 	);
 	await fs.writeFile(
+		path.join(outputDir, "subtitles.vtt"),
+		renderPackage.subtitlesVtt,
+		"utf8",
+	);
+	await fs.writeFile(
+		path.join(outputDir, "subtitles.ass"),
+		renderPackage.subtitlesAss,
+		"utf8",
+	);
+	await fs.writeFile(
 		path.join(outputDir, "ffmpeg-concat.txt"),
 		renderPackage.ffmpegConcat,
 		"utf8",
