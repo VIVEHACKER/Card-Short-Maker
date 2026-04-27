@@ -13,10 +13,13 @@ import { resolveTransition } from "./transitions";
 import { BGMLayer } from "./overlays/BGMLayer";
 import { resolveIntroTemplate } from "./templates/IntroTemplates";
 import { resolveOutroTemplate } from "./templates/OutroTemplates";
-
-const FPS = 30;
-const INTRO_SECONDS = 2;
-const OUTRO_SECONDS = 2.5;
+import {
+  RENDER_FPS as FPS,
+  RENDER_INTRO_SECONDS as INTRO_SECONDS,
+  RENDER_OUTRO_SECONDS as OUTRO_SECONDS,
+  RENDER_TRANSITION_OVERLAP_FRAMES,
+  RENDER_TRANSITION_OVERLAP_SECONDS,
+} from "../lib/constants";
 
 /**
  * Main CardShorts composition — vertical 1080x1920, 30fps.
@@ -47,8 +50,8 @@ export const CardShorts: React.FC<CardShortsProps> = ({
   const audioOffsets: number[] = [];
   for (const scene of scenes) {
     audioOffsets.push(audioOffset);
-    // Subtract ~overlap frames from transition (scenes overlap during transitions)
-    audioOffset += Math.round(scene.duration * FPS) - 6;
+    audioOffset +=
+      Math.round(scene.duration * FPS) - RENDER_TRANSITION_OVERLAP_FRAMES;
   }
 
   return (
@@ -174,8 +177,8 @@ export function calculateCardShortsDuration(
   scenes: CardShortsProps["scenes"],
 ): number {
   const totalSceneDuration = scenes.reduce((sum, s) => sum + s.duration, 0);
-  // Subtract overlap from transitions (~0.4s per transition)
-  const transitionOverlap = Math.max(0, scenes.length + 1) * 0.2;
+  const transitionOverlap =
+    Math.max(0, scenes.length + 1) * RENDER_TRANSITION_OVERLAP_SECONDS;
   return Math.ceil(
     (INTRO_SECONDS + totalSceneDuration + OUTRO_SECONDS - transitionOverlap + 0.5) * FPS,
   );

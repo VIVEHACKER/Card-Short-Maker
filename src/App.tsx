@@ -83,7 +83,7 @@ const PIPELINE_STAGES = [
   "렌더 패키지",
 ];
 
-const STORAGE_KEY = "shorts-studio:v2";
+import { STORAGE_KEY_PROJECTS as STORAGE_KEY } from "./lib/constants";
 
 function App() {
   const [projects, setProjects] = useState<ShortsProject[]>(() => loadProjects());

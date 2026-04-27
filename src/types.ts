@@ -1,12 +1,22 @@
+/** Editorial intent of a brief — drives tone, hook style, and pacing. */
 export type Intent = "info" | "opinion" | "story";
+/** Voice/tone signal for delivery and BGM matching. */
 export type Tone = "neutral" | "serious" | "energetic" | "urgent";
+/** Distribution target — controls aspect ratio safe-zone, intro template. */
 export type Platform = "youtube" | "tiktok" | "reels";
+/** Spoken language — controls TTS voice and pacing heuristics. */
 export type Language = "ko" | "en";
+/** Narrative role for a scene — affects layout and transition selection. */
 export type SceneRole = "hook" | "build" | "payoff" | "cta";
+/** Media asset kind for a scene background. */
 export type MediaType = "image" | "gif" | "video";
+/** Project lifecycle stage shown in the dashboard. */
 export type ProjectStatus = "editing" | "review" | "rendered" | "failed";
+/** QA verdict for a project. */
 export type Verdict = "pass" | "revise";
+/** Execution policy — picks between local-only, BYO API, or hybrid. */
 export type ExecutionMode = "local" | "byo-api" | "hybrid";
+/** Cost expectation associated with the active execution mode. */
 export type RuntimeCostModel = "free-local" | "user-api" | "mixed";
 
 export interface RuntimeProfile {

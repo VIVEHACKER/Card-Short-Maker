@@ -2,6 +2,11 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import "./styles.css";
+import {
+	STORAGE_KEY_AI_CONFIG,
+	STORAGE_KEY_AI_SECRETS,
+	STORAGE_KEY_PROJECTS,
+} from "./lib/constants";
 
 interface AppErrorBoundaryState {
 	error: Error | null;
@@ -23,8 +28,9 @@ class AppErrorBoundary extends React.Component<
 
 	private handleReset = () => {
 		try {
-			window.localStorage.removeItem("shorts-studio:v2");
-			window.localStorage.removeItem("shorts-studio:ai-config");
+			window.localStorage.removeItem(STORAGE_KEY_PROJECTS);
+			window.localStorage.removeItem(STORAGE_KEY_AI_CONFIG);
+			window.localStorage.removeItem(STORAGE_KEY_AI_SECRETS);
 		} catch {
 			// ignore storage failures and still try reload
 		}

@@ -5,6 +5,11 @@ import {
 	AIProviderError,
 	AIRateLimitError,
 } from "./errors";
+import {
+	AI_FETCH_DEFAULT_BACKOFF_MS,
+	AI_FETCH_DEFAULT_TIMEOUT_MS,
+	AI_FETCH_MAX_RETRIES,
+} from "../constants";
 
 interface FetchOptions {
 	provider: AIProviderName;
@@ -18,9 +23,9 @@ interface FetchOptions {
 	maxRetries?: number;
 }
 
-const DEFAULT_TIMEOUT = 30_000;
-const MAX_RETRIES = 2;
-const BACKOFF_MS = [1000, 3000];
+const DEFAULT_TIMEOUT = AI_FETCH_DEFAULT_TIMEOUT_MS;
+const MAX_RETRIES = AI_FETCH_MAX_RETRIES;
+const BACKOFF_MS = AI_FETCH_DEFAULT_BACKOFF_MS;
 
 export async function aiFetch(options: FetchOptions): Promise<Response> {
 	const {

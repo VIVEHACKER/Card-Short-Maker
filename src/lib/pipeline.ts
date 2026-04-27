@@ -13,37 +13,7 @@ import type {
   VoiceSpec,
 } from "../types";
 
-const STOPWORDS = new Set([
-  "그리고",
-  "하지만",
-  "그래서",
-  "정말",
-  "진짜",
-  "이번에",
-  "그냥",
-  "이유",
-  "대한",
-  "문제",
-  "구조",
-  "사람",
-  "작업",
-  "자동",
-  "도입",
-  "결국",
-  "핵심",
-  "이건",
-  "합니다",
-  "하는",
-  "하게",
-  "있는",
-  "없던",
-  "없애는",
-  "where",
-  "that",
-  "with",
-  "into",
-  "from",
-]);
+import { ALL_STOPWORDS as STOPWORDS } from "./stopwords";
 
 const CTA_LIBRARY = [
   "지금 기준 하나만 바꿔도 결과가 달라집니다.",

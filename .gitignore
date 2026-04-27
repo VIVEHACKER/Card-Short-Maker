@@ -4,3 +4,5 @@ dist-cli
 examples/render-output
 examples/render-pack
 .DS_Store
+.harness/
+.claude/
