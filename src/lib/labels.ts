@@ -15,15 +15,15 @@ export function tabTitle(tab: TabKey): string {
 }
 
 const QA_LABELS: Record<string, string> = {
-	overall: "Overall",
-	hookStrength: "Hook",
-	scriptFlow: "Script Flow",
-	visualFit: "Visual Fit",
-	subtitleReadability: "Subtitle",
-	pacing: "Pacing",
-	ctaFinish: "CTA / Finish",
-	originality: "Originality",
-	creatorPersona: "Persona",
+	overall: "전체 완성도",
+	hookStrength: "첫 장면 흡입력",
+	scriptFlow: "스크립트 흐름",
+	visualFit: "비주얼 적합도",
+	subtitleReadability: "자막 가독성",
+	pacing: "호흡",
+	ctaFinish: "마무리 행동",
+	originality: "차별성",
+	creatorPersona: "채널 톤",
 };
 
 export function prettyQaLabel(label: string): string {
@@ -31,9 +31,9 @@ export function prettyQaLabel(label: string): string {
 }
 
 const ROLE_LABELS: Record<SceneRole, string> = {
-	hook: "Hook",
-	build: "Build",
-	payoff: "Payoff",
+	hook: "후킹",
+	build: "전개",
+	payoff: "전환점",
 	cta: "CTA",
 };
 
@@ -42,10 +42,10 @@ export function prettyRole(role: SceneRole): string {
 }
 
 const QUANT_LABELS: Record<string, string> = {
-	subtitleDensity: "Subtitle density",
-	sceneDuration: "Scene duration",
-	audioSync: "Audio sync",
-	cutFrequency: "Cut frequency",
+	subtitleDensity: "자막 밀도",
+	sceneDuration: "장면 길이",
+	audioSync: "음성 싱크",
+	cutFrequency: "컷 빈도",
 };
 
 export function prettyQuantLabel(label: string): string {

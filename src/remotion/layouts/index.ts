@@ -7,6 +7,7 @@ import { StatCard } from "./StatCard";
 import { ListCard } from "./ListCard";
 import { ComparisonCard } from "./ComparisonCard";
 import { MinimalCard } from "./MinimalCard";
+import { ReferenceCard } from "./ReferenceCard";
 
 const LAYOUT_REGISTRY: Record<LayoutName, CardLayout> = {
   centered: CenteredCard,
@@ -17,6 +18,7 @@ const LAYOUT_REGISTRY: Record<LayoutName, CardLayout> = {
   list: ListCard,
   comparison: ComparisonCard,
   minimal: MinimalCard,
+  "reference-card": ReferenceCard,
 };
 
 /** Resolve a layout component by name. Falls back to CenteredCard. */

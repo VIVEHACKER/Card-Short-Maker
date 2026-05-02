@@ -1,22 +1,33 @@
 import { useCallback, useRef, useState } from "react";
-import { buildRuntimeProfile } from "../lib/pipeline";
+import { buildRuntimeProfile, buildSubtitleBlock, recalculateProject } from "../lib/pipeline";
 import { generateScript } from "../lib/ai/capabilities/text-generation";
 import { generateImage } from "../lib/ai/capabilities/image-generation";
 import { generateTTS } from "../lib/ai/capabilities/tts-generation";
-import { resolveProvider } from "../lib/ai/registry";
-import type { PipelineProgress } from "../lib/ai/types";
+import { getAvailableProviders, resolveProvider } from "../lib/ai/registry";
+import type { GenerationVariationProfile, PipelineProgress, VariationStrength } from "../lib/ai/types";
 import type { Brief, ExecutionMode, Scene, ShortsProject } from "../types";
 import { estimateSceneCount } from "../lib/ai/prompts/script";
-import { hasStockProvider, findStockImagesForScenes } from "../lib/stock";
+import { hasConfiguredStockProvider, findStockImagesForScenes } from "../lib/stock";
 import { isLocalTTSAvailable, localTTS } from "../lib/ai/providers/local-tts";
 import { optimizePacing } from "../lib/pacing";
 import { trackSpan } from "../lib/diagnostics";
 import { matchBGMByTone } from "../lib/bgm-presets";
+import { buildLocalScript } from "../lib/ai/local-script";
+import {
+	SEMANTIC_VECTOR_SOURCE_HINT,
+	buildLocalSceneCardImage,
+} from "../lib/local-assets";
+import { buildReferenceCardMediaQuery } from "../lib/media-query";
+import {
+	REFERENCE_CARD_PRESET,
+	applyReferenceCardTemplate,
+} from "../lib/card-template";
 
 export interface AIGenerationResult {
 	project: ShortsProject;
 	scriptProvider: string;
 	imageSuccessCount: number;
+	imageFallbackCount: number;
 	ttsSuccessCount: number;
 	errors: string[];
 }
@@ -44,6 +55,8 @@ export function useAIPipeline() {
 				channel?: string;
 				preset?: string;
 				runtimeMode?: ExecutionMode;
+				bypassScriptCache?: boolean;
+				variation?: GenerationVariationProfile;
 			},
 		): Promise<AIGenerationResult> => {
 			const controller = new AbortController();
@@ -71,15 +84,51 @@ export function useAIPipeline() {
 				});
 
 				const maxScenes = estimateSceneCount(brief);
-				const textResult = await trackSpan(
-					"pipeline.script",
-					{ language: brief.language, maxScenes },
-					() =>
-						generateScript(
-							{ brief, language: brief.language, maxScenes },
-							controller.signal,
-						),
-				);
+				const textProviderAvailable = getAvailableProviders("text").length > 0;
+				let generatedScript = "";
+				let scriptProvider = "local (rule-based)";
+
+				if (textProviderAvailable) {
+					try {
+						const textResult = await trackSpan(
+							"pipeline.script",
+							{ language: brief.language, maxScenes },
+							() =>
+								generateScript(
+									{
+										brief,
+										language: brief.language,
+										maxScenes,
+										variation: options?.variation,
+										temperature: variationStrengthToTemperature(
+											options?.variation?.strength,
+										),
+									},
+									controller.signal,
+									{ bypassCache: options?.bypassScriptCache ?? false },
+								),
+						);
+						generatedScript = textResult.script;
+						scriptProvider = `${textResult.provider} (${textResult.model})`;
+					} catch (error) {
+						const msg = error instanceof Error ? error.message : String(error);
+						errors.push(`스크립트 AI 실패: ${msg} — 로컬 스크립트로 대체`);
+					}
+				}
+
+				if (!generatedScript.trim()) {
+					setProgress({
+						stage: "generating-script",
+						current: 1,
+						total: 1,
+						message: "로컬 스크립트 생성 중...",
+					});
+					generatedScript = buildLocalScript({
+						brief,
+						maxScenes,
+						variation: options?.variation,
+					});
+				}
 
 				// ── 2. AI 스크립트를 직접 씬으로 변환 (로컬 템플릿 우회) ──
 				setProgress({
@@ -89,7 +138,7 @@ export function useAIPipeline() {
 					message: "장면 분해 중...",
 				});
 
-				const project = buildProjectFromAIScript(brief, textResult.script, {
+				const project = buildProjectFromAIScript(brief, generatedScript, {
 					id: options?.id,
 					accent: options?.accent,
 					channel: options?.channel,
@@ -97,22 +146,82 @@ export function useAIPipeline() {
 					runtimeMode: options?.runtimeMode,
 				});
 
-				// ── 3a. 스톡 미디어 검색 (무료 — 우선 실행) ──
+				// ── 3a. AI 이미지 생성 (키가 있으면 최우선) ──
 				const sceneCount = project.scenes.length;
 				let imageSuccessCount = 0;
-				const stockAvailable = hasStockProvider();
+				let imageFallbackCount = 0;
+				const stockAvailable = hasConfiguredStockProvider();
+				const imageProviderAvailable = getAvailableProviders("image").length > 0;
 
-				if (stockAvailable) {
+				if (imageProviderAvailable) {
+					setProgress({
+						stage: "generating-images",
+						current: 0,
+						total: sceneCount,
+						message: `AI 이미지 생성 중 (0/${sceneCount})...`,
+					});
+
+					for (let i = 0; i < sceneCount; i++) {
+						if (controller.signal.aborted) break;
+
+						const scene = project.scenes[i]!;
+						try {
+							const result = await generateImage(
+								{
+									prompt: scene.text,
+									style: scene.media.style,
+									aspectRatio: "9:16" as const,
+									sceneRole: scene.role,
+									variation: options?.variation
+										? {
+												...options.variation,
+												seed: `${options.variation.seed}-scene-${i + 1}`,
+											}
+										: undefined,
+								},
+								controller.signal,
+							);
+							scene.media.generatedImageUrl = result.imageUrl;
+							scene.media.sourceHint = `AI — ${result.provider}`;
+							imageSuccessCount++;
+						} catch (error) {
+							console.error(`[Pipeline] AI 이미지 ${i + 1} 실패:`, error);
+							const msg = error instanceof Error ? error.message : String(error);
+							errors.push(`이미지 ${i + 1}: ${msg}`);
+							setProgress({
+								stage: "generating-images",
+								current: i + 1,
+								total: sceneCount,
+								message: `이미지 ${i + 1} 실패: ${msg.slice(0, 80)}`,
+							});
+							continue;
+						}
+
+						setProgress({
+							stage: "generating-images",
+							current: i + 1,
+							total: sceneCount,
+							message: `AI 이미지 생성 중 (${i + 1}/${sceneCount})...`,
+						});
+					}
+				}
+
+				// ── 3b. 스톡 미디어 검색 (AI 미커버 장면만) ──
+				const stockTargets = project.scenes
+					.map((scene, index) => ({ scene, index }))
+					.filter((item) => !item.scene.media.generatedImageUrl);
+
+				if (stockTargets.length > 0 && stockAvailable) {
 					setProgress({
 						stage: "searching-stock",
 						current: 0,
-						total: sceneCount,
+						total: stockTargets.length,
 						message: "스톡 이미지 검색 중...",
 					});
 
 					try {
-						const queries = project.scenes.map((s) => ({
-							query: s.media.query,
+						const queries = stockTargets.map(({ scene }) => ({
+							query: scene.media.query,
 							language: brief.language,
 						}));
 
@@ -128,84 +237,67 @@ export function useAIPipeline() {
 									message: `스톡 검색 중 (${done}/${total})...`,
 								});
 							},
+							{ includeNoKeyFallback: false },
 						);
 
-						for (let i = 0; i < sceneCount; i++) {
+						for (let i = 0; i < stockTargets.length; i++) {
 							const result = stockResults[i];
 							if (result) {
-								project.scenes[i]!.media.generatedImageUrl = result.url;
-								project.scenes[i]!.media.sourceHint = `${result.provider} — ${result.photographer ?? "unknown"}`;
+								const scene = project.scenes[stockTargets[i]!.index]!;
+								scene.media.generatedImageUrl = result.url;
+								scene.media.sourceHint = `${result.provider} — ${result.photographer ?? "unknown"}`;
 								imageSuccessCount++;
 							}
 						}
 
 						console.log(
-							`[Pipeline] 스톡 검색: ${imageSuccessCount}/${sceneCount} 성공`,
+							`[Pipeline] 스톡 검색: ${stockResults.filter(Boolean).length}/${stockTargets.length} 성공`,
 						);
 					} catch (error) {
 						console.error("[Pipeline] 스톡 검색 실패:", error);
 					}
 				}
 
-				// ── 3b. AI 이미지 생성 (스톡 미커버 장면만 — 폴백) ──
-				const uncoveredScenes = project.scenes
-					.map((s, i) => ({ scene: s, index: i }))
-					.filter((item) => !item.scene.media.generatedImageUrl);
-
-				if (uncoveredScenes.length > 0) {
+				// ── 3c. 의미 기반 로컬 비주얼 (키/스톡 없이도 최종 산출물 보장) ──
+				const semanticVisualTargets = project.scenes.filter(
+					(scene) => !scene.media.generatedImageUrl,
+				).length;
+				if (semanticVisualTargets > 0) {
 					setProgress({
 						stage: "generating-images",
 						current: 0,
-						total: uncoveredScenes.length,
-						message: `AI 이미지 생성 중 (0/${uncoveredScenes.length})...`,
+						total: semanticVisualTargets,
+						message: `의미 기반 비주얼 생성 중 (0/${semanticVisualTargets})...`,
 					});
+				}
 
-					for (let j = 0; j < uncoveredScenes.length; j++) {
-						if (controller.signal.aborted) break;
+				let semanticVisualDone = 0;
+				for (let i = 0; i < sceneCount; i++) {
+					const scene = project.scenes[i]!;
+					if (scene.media.generatedImageUrl) continue;
 
-						const { scene, index: sceneIdx } = uncoveredScenes[j]!;
-						try {
-							const result = await generateImage(
-								{
-									prompt: scene.text,
-									style: scene.media.style,
-									aspectRatio: "9:16" as const,
-									sceneRole: scene.role,
-								},
-								controller.signal,
-							);
-							scene.media.generatedImageUrl = result.imageUrl;
-							scene.media.sourceHint = `AI — ${result.provider}`;
-							imageSuccessCount++;
-						} catch (error) {
-							console.error(
-								`[Pipeline] AI 이미지 ${sceneIdx + 1} 실패:`,
-								error,
-							);
-							const msg =
-								error instanceof Error ? error.message : String(error);
-							errors.push(`이미지 ${sceneIdx + 1}: ${msg}`);
-							setProgress({
-								stage: "generating-images",
-								current: j + 1,
-								total: uncoveredScenes.length,
-								message: `이미지 ${sceneIdx + 1} 실패: ${msg.slice(0, 80)}`,
-							});
-							continue;
-						}
-
-						setProgress({
-							stage: "generating-images",
-							current: j + 1,
-							total: uncoveredScenes.length,
-							message: `AI 이미지 생성 중 (${j + 1}/${uncoveredScenes.length})...`,
-						});
-					}
+					scene.media.generatedImageUrl = buildLocalSceneCardImage(
+						scene.text,
+						scene.role,
+						brief,
+						i,
+					);
+					scene.media.sourceHint = SEMANTIC_VECTOR_SOURCE_HINT;
+					imageSuccessCount++;
+					imageFallbackCount++;
+					semanticVisualDone++;
+					setProgress({
+						stage: "generating-images",
+						current: semanticVisualDone,
+						total: semanticVisualTargets,
+						message: `의미 기반 비주얼 생성 중 (${semanticVisualDone}/${semanticVisualTargets})...`,
+					});
 				}
 
 				// ── 4. TTS 생성 (로컬 우선 → 클라우드 폴백) ──
 				let ttsSuccessCount = 0;
 				const localTTSReady = await isLocalTTSAvailable();
+				const ttsProviderAvailable = getAvailableProviders("tts").length > 0;
 
 				setProgress({
 					stage: "generating-tts",
@@ -234,7 +326,7 @@ export function useAIPipeline() {
 						try {
 							const result = await localTTS(ttsRequest, controller.signal);
 							scene.voice.generatedAudioUrl = result.audioUrl;
-							scene.voice.provider = "piper";
+							scene.voice.provider = getLocalTTSProviderLabel(result);
 							ttsSuccessCount++;
 							ttsSuccess = true;
 						} catch (error) {
@@ -245,8 +337,8 @@ export function useAIPipeline() {
 						}
 					}
 
-					// Fallback to cloud TTS
-					if (!ttsSuccess) {
+					// Fallback to cloud TTS only when a provider is configured.
+					if (!ttsSuccess && ttsProviderAvailable) {
 						try {
 							const result = await generateTTS(ttsRequest, controller.signal);
 							scene.voice.generatedAudioUrl = result.audioUrl;
@@ -256,6 +348,8 @@ export function useAIPipeline() {
 								error instanceof Error ? error.message : String(error);
 							errors.push(`TTS ${i + 1}: ${msg}`);
 						}
+					} else if (!ttsSuccess) {
+						scene.voice.provider = "TTS not configured";
 					}
 
 					setProgress({
@@ -288,13 +382,16 @@ export function useAIPipeline() {
 					message: "완료!",
 				});
 
-				return {
-					project,
-					scriptProvider: `${textResult.provider} (${textResult.model})`,
-					imageSuccessCount,
-					ttsSuccessCount,
-					errors,
-				};
+					const finalProject = recalculateProject(project);
+
+					return {
+						project: finalProject,
+						scriptProvider,
+						imageSuccessCount,
+						imageFallbackCount,
+						ttsSuccessCount,
+						errors,
+					};
 			} finally {
 				setIsGenerating(false);
 				abortRef.current = null;
@@ -343,49 +440,47 @@ function buildProjectFromAIScript(
 		text,
 		role: roles[i] ?? ("build" as const),
 		language: brief.language,
-		subtitleLines: splitSubtitle(text),
+		subtitleLines: buildSubtitleBlock(text).lines,
 	}));
 	const durations = optimizePacing(pacingInputs, targetDur);
 
-	const scenes: Scene[] = lines.map((text, i) => ({
-		id: `scene-${i + 1}`,
-		index: i + 1,
-		text,
-		duration: durations[i] ?? 4,
-		role: roles[i] ?? "build",
-		media: {
-			type: roles[i] === "build" ? "gif" : "image",
-			query: buildContextualQuery(text, brief, roles[i] ?? "build"),
-			style: roleStyle(roles[i] ?? "build"),
-			tags: extractWords(text),
-			sourceHint: "",
-		},
-		subtitles: {
-			id: `sub-${i + 1}`,
-			lines: splitSubtitle(text),
-			emphasis: extractWords(text).slice(0, 2),
-		},
-		voice: {
-			provider: "TTS",
-			speed: roles[i] === "hook" ? 1.04 : roles[i] === "cta" ? 0.94 : 1.0,
-			emotion:
-				brief.tone === "energetic"
-					? "energetic"
-					: brief.tone === "serious"
-						? "serious"
-						: "neutral",
-		},
-		notes: "",
-		layout: assignLayout(text, roles[i] ?? "build"),
-		transition: assignTransition(assignLayout(text, roles[i] ?? "build")),
-	}));
+	const scenes: Scene[] = lines.map((text, i) => {
+		const role = roles[i] ?? "build";
+
+		return applyReferenceCardTemplate({
+			id: `scene-${i + 1}`,
+			index: i + 1,
+			text,
+			duration: durations[i] ?? 4,
+			role,
+			media: {
+				type: role === "build" ? "gif" : "image",
+				query: buildReferenceCardMediaQuery(text, brief, role),
+				style: roleStyle(role),
+				tags: extractWords(text),
+				sourceHint: "",
+			},
+			subtitles: buildSubtitleBlock(text),
+			voice: {
+				provider: "TTS pending",
+				speed: role === "hook" ? 1.04 : role === "cta" ? 0.94 : 1.0,
+				emotion:
+					brief.tone === "energetic"
+						? "energetic"
+						: brief.tone === "serious"
+							? "serious"
+					: "neutral",
+			},
+			notes: "",
+		}, count);
+	});
 
 	const qa = quickQa(brief, scenes);
 
 	return {
 		id: options?.id ?? `project-${Date.now()}`,
 		channel: options?.channel ?? "channel-a",
-		preset: options?.preset ?? "기본",
+		preset: options?.preset ?? REFERENCE_CARD_PRESET,
 		accent: options?.accent ?? "#f2b36f",
 		runtime: buildRuntimeProfile(options?.runtimeMode ?? "byo-api"),
 		brief,
@@ -407,50 +502,6 @@ function assignRoles(count: number): SceneRole[] {
 	});
 }
 
-function buildContextualQuery(
-	text: string,
-	brief: Brief,
-	role: SceneRole,
-): string {
-	const topic = (brief.topic || brief.title).trim();
-	const sceneWords = extractWords(text).slice(0, 3).join(" ");
-	const mood =
-		brief.tone === "serious"
-			? "documentary cinematic"
-			: brief.tone === "energetic"
-				? "vibrant dynamic"
-				: "clean editorial";
-	return `${topic} ${sceneWords} ${mood}`.trim();
-}
-
-/** Auto-assign layout based on role and text content */
-function assignLayout(text: string, role: SceneRole): string {
-	if (role === "hook") return "fullBleed";
-	if (role === "cta") return "minimal";
-	if (role === "payoff") return "quote";
-
-	// Build scenes — detect content patterns
-	if (/\d[\d,.]*\s*%/.test(text)) return "stat";
-	if (/vs\.?|하지만|반면|그러나/i.test(text)) return "comparison";
-	if (/[,;·]/.test(text) && text.split(/[,;·]/).length >= 3) return "list";
-
-	return "split";
-}
-
-/** Auto-assign transition based on layout */
-function assignTransition(layout: string): string {
-	switch (layout) {
-		case "fullBleed": return "scale";
-		case "split": return "slideUp";
-		case "quote": return "fade";
-		case "stat": return "flip";
-		case "list": return "slideLeft";
-		case "comparison": return "wipe";
-		case "minimal": return "fade";
-		default: return "fade";
-	}
-}
-
 function roleStyle(role: SceneRole): string {
 	const map: Record<SceneRole, string> = {
 		hook: "cinematic high-contrast, dramatic, strong focal subject",
@@ -470,17 +521,6 @@ function extractWords(text: string): string[] {
 				?.filter((t) => t.length >= 2) ?? [],
 		),
 	).slice(0, 5);
-}
-
-function splitSubtitle(text: string): string[] {
-	const clean = text.replace(/[.!?]+$/g, "").trim();
-	if (clean.length <= 14) return [clean];
-	const mid = Math.ceil(clean.length / 2);
-	const spaceNear = clean.lastIndexOf(" ", mid);
-	const split = spaceNear > 2 ? spaceNear : mid;
-	return [clean.slice(0, split).trim(), clean.slice(split).trim()].filter(
-		Boolean,
-	);
 }
 
 function quickQa(brief: Brief, scenes: Scene[]) {
@@ -507,4 +547,21 @@ function quickQa(brief: Brief, scenes: Scene[]) {
 		issues: [],
 		recommendation: "AI 생성 스크립트로 씬이 구성되었습니다.",
 	};
+}
+
+function getLocalTTSProviderLabel(result: unknown): string {
+	const localProvider =
+		result && typeof result === "object" && "_localProvider" in result
+			? (result as { _localProvider?: unknown })._localProvider
+			: undefined;
+
+	return typeof localProvider === "string" && localProvider.trim()
+		? localProvider
+		: "local TTS";
+}
+
+function variationStrengthToTemperature(strength?: VariationStrength): number {
+	if (strength === "wild") return 1.0;
+	if (strength === "fresh") return 0.85;
+	return 0.72;
 }

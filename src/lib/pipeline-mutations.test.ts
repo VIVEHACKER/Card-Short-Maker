@@ -11,6 +11,7 @@ import {
 	updateSceneNotes,
 	updateSceneRole,
 } from "./pipeline";
+import { REFERENCE_CARD_LAYOUT, REFERENCE_CARD_TEMPLATE_LABEL } from "./card-template";
 import type { Brief } from "../types";
 
 const brief: Brief = {
@@ -147,6 +148,12 @@ describe("makeRenderManifest", () => {
 		const manifest = makeRenderManifest(project);
 		expect(manifest.scenes.length).toBe(project.scenes.length);
 		expect(manifest.title).toBe(project.brief.title);
+		expect(manifest.template).toEqual({
+			preset: project.preset,
+			layout: REFERENCE_CARD_LAYOUT,
+			label: REFERENCE_CARD_TEMPLATE_LABEL,
+			fixedFormat: true,
+		});
 	});
 
 	it("includes voice metadata per scene", () => {
@@ -155,6 +162,8 @@ describe("makeRenderManifest", () => {
 		for (const scene of manifest.scenes) {
 			expect(scene.voice).toBeDefined();
 			expect(typeof scene.voice.speed).toBe("number");
+			expect(scene.layout).toBe(REFERENCE_CARD_LAYOUT);
+			expect(scene.transition).toBeTruthy();
 		}
 	});
 });

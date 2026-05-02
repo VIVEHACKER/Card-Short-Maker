@@ -76,7 +76,7 @@ export interface Scene {
   subtitles: SubtitleBlock;
   voice: VoiceSpec;
   notes: string;
-  /** Layout template — assigned automatically by role */
+  /** Layout template — fixed to the reference card template unless explicitly changed */
   layout?: string;
   /** Transition type between scenes */
   transition?: string;
@@ -132,14 +132,25 @@ export interface RenderManifest {
   projectId: string;
   title: string;
   targetDuration: number;
+  template: {
+    preset: string;
+    layout: string;
+    label: string;
+    fixedFormat: boolean;
+  };
   scenes: Array<{
     id: string;
+    index: number;
     role: SceneRole;
     duration: number;
     text: string;
     mediaQuery: string;
+    mediaImageUrl?: string;
+    mediaSourceHint: string;
     subtitle: string[];
     voice: VoiceSpec;
+    layout?: string;
+    transition?: string;
   }>;
   qa: QaReport;
 }

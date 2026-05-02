@@ -14,6 +14,19 @@ import type {
 } from "../types";
 
 import { ALL_STOPWORDS as STOPWORDS } from "./stopwords";
+import {
+  SEMANTIC_VECTOR_SOURCE_HINT,
+  buildLocalSceneCardImage,
+} from "./local-assets";
+import { buildReferenceCardMediaQuery } from "./media-query";
+import {
+  REFERENCE_CARD_LAYOUT,
+  REFERENCE_CARD_PRESET,
+  REFERENCE_CARD_TEMPLATE_LABEL,
+  applyReferenceCardTemplate,
+  stripReferenceCardCopyPrefix,
+} from "./card-template";
+import { validateReferenceCardScenes } from "./card-template-quality";
 
 const CTA_LIBRARY = [
   "지금 기준 하나만 바꿔도 결과가 달라집니다.",
@@ -31,20 +44,6 @@ const BUILD_BRIDGE_LIBRARY = [
   "복잡해 보여도 원리는 의외로 단순합니다.",
 ];
 
-const ROLE_QUERY_HINT: Record<SceneRole, string> = {
-  hook: "dramatic opening",
-  build: "process detail",
-  payoff: "insight reveal",
-  cta: "clean closing frame",
-};
-
-const ROLE_NOTE: Record<SceneRole, string> = {
-  hook: "첫 3초 안에 문제의식이나 반전을 드러내세요.",
-  build: "정보를 한 번에 하나씩만 전달해야 이탈이 줄어듭니다.",
-  payoff: "이 장면은 해설이 아니라 통찰이 되어야 합니다.",
-  cta: "행동 유도는 판매보다 기준 제안에 가깝게 마무리하세요.",
-};
-
 export function createProjectFromBrief(
   brief: Brief,
   script: string,
@@ -54,12 +53,12 @@ export function createProjectFromBrief(
 ): ShortsProject {
   const scenes = buildScenes(brief, script);
   const qa = buildQaReport(brief, scenes);
-  const readiness = computeReadiness(qa);
+  const readiness = computeReadiness(qa, scenes);
 
   return {
     id: options?.id ?? `project-${Date.now()}`,
     channel: options?.channel ?? "channel-a",
-    preset: options?.preset ?? "기본",
+    preset: options?.preset ?? REFERENCE_CARD_PRESET,
     accent: options?.accent ?? "#f2b36f",
     runtime: options?.runtime ?? buildRuntimeProfile(options?.runtimeMode ?? "local"),
     brief,
@@ -74,7 +73,7 @@ export function createProjectFromBrief(
 
 export function recalculateProject(project: ShortsProject): ShortsProject {
   const qa = buildQaReport(project.brief, project.scenes);
-  const readiness = computeReadiness(qa);
+  const readiness = computeReadiness(qa, project.scenes);
 
   return {
     ...project,
@@ -94,12 +93,17 @@ export function updateProjectRuntimeMode(project: ShortsProject, mode: Execution
 }
 
 export function refreshSceneFromText(scene: Scene, brief: Brief): Scene {
+  const media = buildMediaSpec(scene.text, brief, scene.role);
+  if (scene.text.trim()) {
+    media.generatedImageUrl = buildLocalSceneCardImage(scene.text, scene.role, brief, scene.index - 1);
+    media.sourceHint = SEMANTIC_VECTOR_SOURCE_HINT;
+  }
+
   return {
-    ...scene,
-    media: buildMediaSpec(scene.text, brief, scene.role),
+    ...applyReferenceCardTemplate(scene),
+    media,
     subtitles: buildSubtitleBlock(scene.text),
     voice: buildVoiceSpec(brief, scene.role),
-    notes: scene.notes?.trim() || ROLE_NOTE[scene.role],
   };
 }
 
@@ -234,14 +238,25 @@ export function makeRenderManifest(project: ShortsProject): RenderManifest {
     projectId: project.id,
     title: project.brief.title,
     targetDuration: project.brief.targetDuration,
+    template: {
+      preset: project.preset,
+      layout: REFERENCE_CARD_LAYOUT,
+      label: REFERENCE_CARD_TEMPLATE_LABEL,
+      fixedFormat: true,
+    },
     scenes: project.scenes.map((scene) => ({
       id: scene.id,
+      index: scene.index,
       role: scene.role,
       duration: scene.duration,
       text: scene.text,
       mediaQuery: scene.media.query,
+      mediaImageUrl: scene.media.generatedImageUrl,
+      mediaSourceHint: scene.media.sourceHint,
       subtitle: scene.subtitles.lines,
       voice: scene.voice,
+      layout: scene.layout,
+      transition: scene.transition,
     })),
     qa: project.qa,
   };
@@ -339,14 +354,15 @@ function buildNarrativeTexts(
   const units = rawUnits.map((line) => line.trim()).filter(Boolean);
   const deduped = Array.from(new Set(units));
   const buildCount = roles.filter((role) => role === "build").length;
-  const buildLines = deduped.slice(1);
+  const hookBase = deduped[0] ?? buildBridgeLine(brief, 0);
+  const ctaBase = deduped.length >= 2 ? deduped[deduped.length - 1] ?? "" : "";
+  const payoffBase = deduped.length >= 3 ? deduped[deduped.length - 2] ?? "" : thesis || buildBridgeLine(brief, 2);
+  const buildLines = deduped.length >= 4 ? deduped.slice(1, -2) : deduped.slice(1);
 
   while (buildLines.length < buildCount) {
     buildLines.push(buildBridgeLine(brief, buildLines.length));
   }
 
-  const hookBase = deduped[0] ?? buildBridgeLine(brief, 0);
-  const payoffBase = deduped[deduped.length - 1] || thesis || buildBridgeLine(brief, 2);
   const lines: string[] = [];
   let buildCursor = 0;
 
@@ -368,7 +384,7 @@ function buildNarrativeTexts(
       continue;
     }
 
-    lines.push(buildCtaLine(topic, brief.intent));
+    lines.push(buildCtaLine(topic, brief.intent, ctaBase));
   }
 
   return lines;
@@ -379,7 +395,11 @@ function buildHookLine(topic: string, base: string): string {
     return base;
   }
 
-  if (compactLength(base) >= 14 && compactLength(base) <= 28) {
+  if (/문제는|핵심은|이유가|먼저|하지 않습니다/.test(base)) {
+    return base;
+  }
+
+  if (compactLength(base) >= 14 && compactLength(base) <= 36) {
     return `${base}?`;
   }
 
@@ -391,12 +411,12 @@ function buildHookLine(topic: string, base: string): string {
 }
 
 function buildPayoffLine(topic: string, thesis: string, fallback: string): string {
-  if (thesis) {
-    return thesis;
-  }
-
   if (compactLength(fallback) >= 8) {
     return fallback;
+  }
+
+  if (thesis) {
+    return thesis;
   }
 
   return topic ? `${topic}의 핵심은 기준을 먼저 고정하는 것입니다.` : "핵심은 기준을 먼저 고정하는 것입니다.";
@@ -418,7 +438,11 @@ function buildBridgeLine(brief: Brief, index: number): string {
   return moodLine;
 }
 
-function buildCtaLine(topic: string, intent: Brief["intent"]): string {
+function buildCtaLine(topic: string, intent: Brief["intent"], preferred = ""): string {
+  if (/(해보세요|하세요|시작하세요|적용해보세요|검증해보세요|나눠보세요)[.!?]*$/i.test(preferred)) {
+    return preferred;
+  }
+
   const fallback = CTA_LIBRARY[Math.floor(topic.length / 2) % CTA_LIBRARY.length];
   if (!topic) {
     return fallback;
@@ -445,18 +469,23 @@ function createScene(
 ): Scene {
   const voice = buildVoiceSpec(brief, input.role);
   const text = polishSceneText(input.text, input.role);
+  const media = buildMediaSpec(text, brief, input.role);
+  if (text.trim()) {
+    media.generatedImageUrl = buildLocalSceneCardImage(text, input.role, brief, input.index - 1);
+    media.sourceHint = SEMANTIC_VECTOR_SOURCE_HINT;
+  }
 
-  return {
+  return applyReferenceCardTemplate({
     id: input.id,
     index: input.index,
     text,
     duration: clampDuration(input.duration),
     role: input.role,
-    media: buildMediaSpec(text, brief, input.role),
+    media,
     subtitles: buildSubtitleBlock(text),
     voice,
-    notes: input.notes?.trim() || ROLE_NOTE[input.role],
-  };
+    notes: input.notes?.trim() || "",
+  });
 }
 
 function finalizeSceneList(project: ShortsProject, scenes: Scene[], rebalanceDurations: boolean): ShortsProject {
@@ -465,13 +494,17 @@ function finalizeSceneList(project: ShortsProject, scenes: Scene[], rebalanceDur
     ? distributeDurations(project.brief.targetDuration, structured.map((scene) => scene.role))
     : structured.map((scene) => clampDuration(scene.duration));
 
+  const totalScenes = structured.length;
   const nextScenes = structured.map((scene, index) =>
-    refreshSceneFromText(
+    applyReferenceCardTemplate(
+      refreshSceneFromText(
       {
         ...scene,
         duration: durations[index],
       },
       project.brief,
+      ),
+      totalScenes,
     ),
   );
 
@@ -515,7 +548,7 @@ function buildVoiceSpec(brief: Brief, role: SceneRole): VoiceSpec {
     brief.tone === "energetic" ? "energetic" : brief.tone === "serious" || role === "payoff" ? "serious" : "neutral";
 
   return {
-    provider: "TTS placeholder",
+    provider: "TTS pending",
     speed: Number(speed.toFixed(2)),
     emotion,
   };
@@ -524,11 +557,6 @@ function buildVoiceSpec(brief: Brief, role: SceneRole): VoiceSpec {
 function buildMediaSpec(text: string, brief: Brief, role: SceneRole): MediaSpec {
   const tags = extractKeywords(text);
   const hasSceneText = text.trim().length > 0;
-  const moodTag = brief.tone === "serious" ? "documentary" : "illustration";
-  const topicTags = extractKeywords(`${brief.title} ${brief.topic}`).slice(0, 2);
-  const queryTags = hasSceneText
-    ? Array.from(new Set([...topicTags, ...tags.slice(0, 3), ROLE_QUERY_HINT[role], moodTag]))
-    : [];
   const styleMap: Record<SceneRole, string> = {
     hook: "cinematic high-contrast opening frame, sharp focus, dynamic composition",
     build: "editorial documentary still, real-world context, layered depth",
@@ -544,7 +572,7 @@ function buildMediaSpec(text: string, brief: Brief, role: SceneRole): MediaSpec 
 
   return {
     type: role === "build" ? "gif" : "image",
-    query: queryTags.length ? queryTags.join(" ") : "",
+    query: hasSceneText ? buildReferenceCardMediaQuery(text, brief, role) : "",
     style: styleMap[role],
     tags,
     sourceHint: sourceHintMap[role],
@@ -552,17 +580,32 @@ function buildMediaSpec(text: string, brief: Brief, role: SceneRole): MediaSpec 
 }
 
 function buildQaReport(brief: Brief, scenes: Scene[]): QaReport {
+  const mediaCoverage = scenes.length
+    ? scenes.filter((scene) => scene.media.generatedImageUrl).length / scenes.length
+    : 0;
+  const highConfidenceMediaCoverage = scenes.length
+    ? scenes.filter((scene) => scene.media.generatedImageUrl && !isLowConfidenceMedia(scene)).length / scenes.length
+    : 0;
+  const voiceCoverage = scenes.length
+    ? scenes.filter((scene) => scene.voice.generatedAudioUrl).length / scenes.length
+    : 0;
   const subtitleReadability = scoreSubtitleReadability(scenes);
   const hookStrength = scoreHook(scenes[0]?.text ?? "");
   const scriptFlow = scoreScriptFlow(scenes);
-  const visualFit = scoreVisualFit(scenes);
+  const visualFit = scoreVisualFit(scenes, mediaCoverage, highConfidenceMediaCoverage);
   const pacing = scorePacing(brief.targetDuration, scenes);
   const ctaFinish = scoreCta(scenes[scenes.length - 1]?.text ?? "");
   const originality = scoreOriginality(scenes);
   const creatorPersona = scorePersona(brief);
-  const overall = Math.round(
+  const templateQuality = validateReferenceCardScenes(scenes);
+  const rawOverall = Math.round(
     average([hookStrength, scriptFlow, visualFit, subtitleReadability, pacing, ctaFinish, originality, creatorPersona]),
   );
+  const assetPenalty =
+    (mediaCoverage === 0 ? 18 : highConfidenceMediaCoverage === 0 ? 6 : 0) +
+    (voiceCoverage === 0 ? 8 : voiceCoverage < 1 ? 4 : 0);
+  const templatePenalty = templateQuality.ok ? 0 : Math.min(16, templateQuality.issues.length * 4);
+  const overall = clamp(rawOverall - assetPenalty - templatePenalty, 0, 100);
 
   const qualitative: QualitativeQa = {
     overall,
@@ -579,7 +622,7 @@ function buildQaReport(brief: Brief, scenes: Scene[]): QaReport {
   const quantitative = {
     subtitleDensity: subtitleReadability >= 88 ? "ok" : "warn",
     sceneDuration: scenes.every((scene) => scene.duration >= 2.2 && scene.duration <= 6.8) ? "ok" : "warn",
-    audioSync: Math.abs(totalDuration(scenes) - brief.targetDuration) <= 0.8 ? "ok" : "warn",
+    audioSync: Math.abs(totalDuration(scenes) - brief.targetDuration) <= 0.8 && voiceCoverage === 1 ? "ok" : "warn",
     cutFrequency: scenes.length >= 4 && scenes.length <= 10 ? "ok" : "warn",
   } as const;
 
@@ -597,15 +640,30 @@ function buildQaReport(brief: Brief, scenes: Scene[]): QaReport {
     issues.push("장면 텍스트와 미디어 쿼리의 결합이 느슨합니다. 명사 태그를 더 구체화하세요.");
   }
 
+  if (mediaCoverage === 0) {
+    issues.push("장면별 비주얼이 없습니다. AI 이미지, 스톡 이미지, 또는 의미 기반 로컬 비주얼을 먼저 생성해야 합니다.");
+  } else if (highConfidenceMediaCoverage === 0) {
+    issues.push("현재 비주얼은 임시/무관 이미지입니다. 의미 기반 비주얼이나 실제 장면 이미지로 교체해야 합니다.");
+  }
+
+  if (voiceCoverage === 0) {
+    issues.push("생성된 음성이 없습니다. TTS 설정 전까지 완성 쇼츠로 판정하면 안 됩니다.");
+  } else if (voiceCoverage < 1) {
+    issues.push("일부 장면의 음성이 비어 있습니다. 음성 생성 실패 장면을 다시 생성하세요.");
+  }
+
   if (ctaFinish < 78) {
     issues.push("마지막 장면이 행동 유도보다 문장 반복에 가깝습니다. 기준 제안형 CTA로 조정하세요.");
   }
 
-  const verdict = overall >= 84 ? "pass" : "revise";
+  issues.push(...templateQuality.issues);
+
+  const allQuantOk = Object.values(quantitative).every((value) => value === "ok");
+  const verdict = overall >= 84 && allQuantOk ? "pass" : "revise";
   const recommendation =
     verdict === "pass"
-      ? "현재 구조는 배포 가능한 수준입니다. 이제 실제 미디어 수집과 렌더 엔진을 붙이면 됩니다."
-      : "스크립트와 자막을 먼저 다듬고, 그 다음 미디어와 CTA를 다시 생성하는 순서가 맞습니다.";
+      ? "현재 구조는 배포 가능한 수준입니다. 실제 미디어와 음성까지 확인한 뒤 렌더링하세요."
+      : "스크립트, 이미지, 음성 중 비어 있는 항목을 먼저 채운 뒤 다시 검수해야 합니다.";
 
   return {
     quantitative,
@@ -646,17 +704,17 @@ function distributeDurations(targetDuration: number, roles: SceneRole[]): number
 }
 
 function polishSceneText(text: string, role: SceneRole): string {
-  const cleaned = text
+  const cleaned = stripReferenceCardCopyPrefix(text
     .replace(/^(이 영상에서는|이번 영상에서는)\s*/i, "")
     .replace(/\s+/g, " ")
-    .trim();
+    .trim());
   if (!cleaned) return "";
 
   if (role === "hook" && !/[?!]$/.test(cleaned) && compactLength(cleaned) <= 26) {
     return `${cleaned}?`;
   }
 
-  if (role === "cta" && !/(해보세요|하세요|시작하세요|적용해보세요|검증해보세요)[.!?]*$/i.test(cleaned)) {
+  if (role === "cta" && !/(해보세요|하세요|시작하세요|적용해보세요|검증해보세요|나눠보세요)[.!?]*$/i.test(cleaned)) {
     return `${cleaned.replace(/[.!?]+$/g, "")} 해보세요.`;
   }
 
@@ -667,7 +725,7 @@ function scoreHook(text: string): number {
   let score = 68;
 
   if (/[?!]/.test(text)) score += 10;
-  if (/(왜|진짜|결국|오히려|없앤|망한|금지)/.test(text)) score += 14;
+  if (/(왜|진짜|결국|오히려|없앤|망한|금지|문제는|의지가 아니라|순서입니다)/.test(text)) score += 14;
   if (compactLength(text) <= 20) score += 6;
 
   return clamp(score, 0, 100);
@@ -680,9 +738,11 @@ function scoreScriptFlow(scenes: Scene[]): number {
   return clamp(70 + uniqueRoles * 6 + shortMessages * 2, 0, 100);
 }
 
-function scoreVisualFit(scenes: Scene[]): number {
+function scoreVisualFit(scenes: Scene[], mediaCoverage: number, highConfidenceMediaCoverage: number): number {
   const matched = scenes.filter((scene) => scene.media.tags.some((tag) => scene.text.includes(tag))).length;
-  return clamp(Math.round((matched / scenes.length) * 100) + 18, 0, 100);
+  const textFit = scenes.length ? Math.round((matched / scenes.length) * 100) : 0;
+  const assetFit = Math.round(mediaCoverage * 68 + highConfidenceMediaCoverage * 22);
+  return clamp(Math.round(textFit * 0.45 + assetFit * 0.55), 0, 100);
 }
 
 function scoreSubtitleReadability(scenes: Scene[]): number {
@@ -706,7 +766,7 @@ function scorePacing(targetDuration: number, scenes: Scene[]): number {
 function scoreCta(text: string): number {
   let score = 62;
 
-  if (/(바꾸|시작|이깁|설계|달라집니다)/.test(text)) score += 22;
+  if (/(바꾸|시작|이깁|설계|달라집니다|나눠|분리|잠그|저축)/.test(text)) score += 22;
   if (compactLength(text) <= 26) score += 8;
 
   return clamp(score, 0, 100);
@@ -727,12 +787,28 @@ function scorePersona(brief: Brief): number {
   return clamp(score, 0, 100);
 }
 
-function computeReadiness(qa: QaReport): number {
+function isLowConfidenceMedia(scene: Scene): boolean {
+  const sourceHint = scene.media.sourceHint.toLowerCase();
+  return (
+    sourceHint.includes("local card fallback") ||
+    sourceHint.includes("picsum") ||
+    sourceHint.includes("placeholder")
+  );
+}
+
+function computeReadiness(qa: QaReport, scenes: Scene[]): number {
   const base = qa.qualitative.overall;
   const quantBonus =
     Object.values(qa.quantitative).filter((value) => value === "ok").length / Object.values(qa.quantitative).length;
+  const mediaCoverage = scenes.length
+    ? scenes.filter((scene) => scene.media.generatedImageUrl).length / scenes.length
+    : 0;
+  const voiceCoverage = scenes.length
+    ? scenes.filter((scene) => scene.voice.generatedAudioUrl).length / scenes.length
+    : 0;
+  const assetScore = Math.round(mediaCoverage * 14 + voiceCoverage * 10);
 
-  return clamp(Math.round(base * 0.82 + quantBonus * 18), 0, 100);
+  return clamp(Math.round(base * 0.72 + quantBonus * 14 + assetScore), 0, 100);
 }
 
 function deriveStatus(readiness: number): ShortsProject["status"] {

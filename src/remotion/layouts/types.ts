@@ -25,4 +25,5 @@ export type LayoutName =
   | "stat"
   | "list"
   | "comparison"
-  | "minimal";
+  | "minimal"
+  | "reference-card";

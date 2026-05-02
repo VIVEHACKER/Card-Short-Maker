@@ -1,4 +1,4 @@
-export type StockProvider = "pexels" | "pixabay";
+export type StockProvider = "pexels" | "pixabay" | "commons" | "picsum";
 
 export interface StockMedia {
   id: string;

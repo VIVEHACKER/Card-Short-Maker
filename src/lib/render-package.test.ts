@@ -31,6 +31,8 @@ describe("buildRenderPackage", () => {
 		expect(pkg.readme).toContain("subtitles.srt");
 		expect(pkg.readme).toContain("subtitles.vtt");
 		expect(pkg.readme).toContain("subtitles.ass");
+		expect(pkg.readme).toContain("Template: 내용 교체형 카드 쇼츠");
+		expect(pkg.readme).toContain("Layout: reference-card");
 	});
 
 	it("ffmpegConcat lists every scene", () => {

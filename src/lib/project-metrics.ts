@@ -55,6 +55,8 @@ function sourceCategory(hint: string): string {
 	if (value.includes("ai")) return "ai";
 	if (value.includes("pexels")) return "pexels";
 	if (value.includes("pixabay")) return "pixabay";
+	if (value.includes("commons")) return "commons";
+	if (value.includes("picsum")) return "picsum";
 	return "other";
 }
 

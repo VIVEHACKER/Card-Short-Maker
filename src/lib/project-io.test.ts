@@ -80,6 +80,30 @@ describe("hydrateProject", () => {
 		expect(sample.scenes).toHaveLength(2);
 		expect(sample.scenes[0]?.role).toBe("hook");
 	});
+
+	it("drops persisted blob audio urls because they expire after reload", () => {
+		const project = hydrateProject({
+			brief: { title: "x", topic: "y", targetDuration: 30 },
+			script: "훅\n전개\n전개\n전환\n마무리",
+			scenes: [
+				{
+					id: "s1",
+					text: "훅 라인",
+					role: "hook",
+					duration: 4,
+					voice: {
+						provider: "macos-say",
+						speed: 1,
+						emotion: "serious",
+						generatedAudioUrl: "blob:http://127.0.0.1:5173/expired",
+					},
+				},
+			],
+		});
+
+		expect(project.scenes[0]?.voice.generatedAudioUrl).toBeUndefined();
+		expect(project.qa.issues.some((issue) => issue.includes("음성"))).toBe(true);
+	});
 });
 
 describe("hydrateProjects", () => {

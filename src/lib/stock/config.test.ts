@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
 	getAvailableStockProviders,
+	getAvailableStockProvidersForMode,
 	getStockConfig,
+	hasConfiguredStockProvider,
 	hasStockProvider,
 	saveStockConfig,
 } from "./config";
@@ -58,20 +60,34 @@ describe("stock config", () => {
 		expect(loaded.pixabayApiKey).toBe("");
 	});
 
-	it("hasStockProvider returns true when any key set", () => {
-		saveStockConfig({ pexelsApiKey: "p-1", pixabayApiKey: "" });
+	it("hasStockProvider is true because no-key photo sources are built in", () => {
 		expect(hasStockProvider()).toBe(true);
 	});
 
-	it("getAvailableStockProviders lists configured providers", () => {
+	it("hasConfiguredStockProvider returns true when any key set", () => {
+		saveStockConfig({ pexelsApiKey: "p-1", pixabayApiKey: "" });
+		expect(hasConfiguredStockProvider()).toBe(true);
+	});
+
+	it("getAvailableStockProviders lists configured and built-in providers", () => {
 		saveStockConfig({ pexelsApiKey: "p-1", pixabayApiKey: "p-2" });
 		const providers = getAvailableStockProviders();
 		expect(providers).toContain("pexels");
 		expect(providers).toContain("pixabay");
+		expect(providers).toContain("commons");
+		expect(providers).toContain("picsum");
 	});
 
-	it("hasStockProvider ignores whitespace-only keys", () => {
+	it("can disable no-key providers for production media selection", () => {
+		saveStockConfig({ pexelsApiKey: "p-1", pixabayApiKey: "" });
+		const providers = getAvailableStockProvidersForMode({
+			includeNoKeyFallback: false,
+		});
+		expect(providers).toEqual(["pexels"]);
+	});
+
+	it("hasConfiguredStockProvider ignores whitespace-only keys", () => {
 		saveStockConfig({ pexelsApiKey: "   ", pixabayApiKey: "" });
-		expect(hasStockProvider()).toBe(false);
+		expect(hasConfiguredStockProvider()).toBe(false);
 	});
 });

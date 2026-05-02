@@ -1,15 +1,19 @@
 import { motion } from "framer-motion";
 import { BadgeCheck, FileJson2, Play, Layers3 } from "lucide-react";
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import type { RenderPackage, Scene, ShortsProject } from "../types";
-import { RemotionPreview } from "./RemotionPreview";
+import { REFERENCE_CARD_TEMPLATE_LABEL } from "../lib/card-template";
+
+const RemotionPreview = lazy(() =>
+	import("./RemotionPreview").then((module) => ({ default: module.RemotionPreview })),
+);
 
 export function BriefOverview({ project }: { project: ShortsProject }) {
 	return (
 		<div className="panel-scroll">
 			<div className="overview-grid">
-				<MetricCard label="타깃" value={project.brief.audience} />
-				<MetricCard label="논지" value={project.brief.thesis} />
+				<MetricCard label="타깃" value={displayValue(project.brief.audience, "제목 입력 후 자동 설정")} />
+				<MetricCard label="논지" value={displayValue(project.brief.thesis, "핵심 논지 생성 대기")} />
 				<MetricCard
 					label="플랫폼"
 					value={`${project.brief.platform} · ${project.brief.intent}`}
@@ -35,7 +39,7 @@ export function BriefOverview({ project }: { project: ShortsProject }) {
 							<span>{scene.index}</span>
 							<div>
 								<strong>{prettyRole(scene.role)}</strong>
-								<p>{scene.text}</p>
+								<p>{sceneCopy(scene)}</p>
 							</div>
 							<em>{scene.duration.toFixed(1)}s</em>
 						</article>
@@ -81,7 +85,9 @@ export function EditorCanvas({
 			{previewMode === "card" ? (
 				<PhonePreview project={project} scene={scene} />
 			) : (
-				<RemotionPreview project={project} />
+				<Suspense fallback={<div className="remotion-loading">모션 미리보기를 준비 중입니다...</div>}>
+					<RemotionPreview project={project} />
+				</Suspense>
 			)}
 
 			<Timeline
@@ -153,10 +159,10 @@ export function DraftsCanvas({
 							<span>{prettyRole(scene.role)}</span>
 							<strong>{scene.duration.toFixed(1)}s</strong>
 						</div>
-						<h3>{scene.text}</h3>
-						<p>{scene.media.query}</p>
+						<h3>{sceneCopy(scene)}</h3>
+						<p>{displayValue(scene.media.query, "이미지 방향 생성 대기")}</p>
 						<div className="scene-tile__tags">
-							{scene.subtitles.lines.map((line) => (
+							{subtitleLines(scene).map((line) => (
 								<span key={line}>{line}</span>
 							))}
 						</div>
@@ -249,26 +255,35 @@ export function PhonePreview({
 	project: ShortsProject;
 	scene: Scene;
 }) {
+	const title = displayValue(project.brief.title, "제목 입력 대기");
+	const copy = sceneCopy(scene);
+	const visualTags = scene.media.tags.length ? scene.media.tags.join(" · ") : "카드 비주얼 생성 대기";
+	const hasGeneratedVisual = Boolean(scene.media.generatedImageUrl);
+	const templateLabel =
+		scene.layout === "reference-card" ? REFERENCE_CARD_TEMPLATE_LABEL : prettyRole(scene.role);
+
 	return (
 		<div className="phone-stage">
 			<motion.article
 				key={scene.id}
 				className="phone-preview"
+				aria-label={`${scene.index}번 장면 미리보기`}
 				initial={{ opacity: 0, y: 18, scale: 0.98 }}
 				animate={{ opacity: 1, y: 0, scale: 1 }}
 				transition={{ duration: 0.28 }}
 			>
-				<div className="phone-preview__poster">
+				<div className={`phone-preview__poster ${hasGeneratedVisual ? "phone-preview__poster--generated" : ""}`}>
 					<div className="poster-header">
 						<span>{project.channel}</span>
+						<em>{templateLabel}</em>
 					</div>
-					<h3>{project.brief.title}</h3>
+					<h3>{title}</h3>
 					<p className="poster-meta">
-						{project.updatedAt} | {Math.round(project.readiness * 421)} views
+						{scene.index}/{project.scenes.length} · {scene.duration.toFixed(1)}초 · {project.readiness}% ready
 					</p>
 
 					<div className="poster-copy">
-						<strong>{scene.text}</strong>
+						<strong>{copy}</strong>
 					</div>
 
 					<div className="poster-visual">
@@ -276,30 +291,42 @@ export function PhonePreview({
 							<img
 								className="poster-visual__image"
 								src={scene.media.generatedImageUrl}
-								alt={scene.media.query}
+								alt={displayValue(scene.media.query, copy)}
+								loading="lazy"
 							/>
 						) : (
 							<div className="poster-visual__frame">
-								<div className="visual-orb visual-orb--primary" />
-								<div className="visual-orb visual-orb--secondary" />
+								<div className="visual-slab visual-slab--primary" />
+								<div className="visual-slab visual-slab--secondary" />
 								<div className="visual-card">
 									<span>{scene.media.type.toUpperCase()}</span>
-									<strong>{scene.media.tags.join(" · ")}</strong>
+									<strong>{visualTags}</strong>
 								</div>
 							</div>
 						)}
 					</div>
 
 					{scene.voice.generatedAudioUrl && (
-						<div className="audio-preview">
-							<audio controls src={scene.voice.generatedAudioUrl} preload="none">
+						<button
+							className="audio-preview"
+							type="button"
+							aria-label={`${scene.index}번 장면 생성 음성 재생`}
+							onClick={(event) => {
+								const audio = event.currentTarget.querySelector("audio");
+								audio?.play().catch(() => undefined);
+							}}
+						>
+							<Play size={13} />
+							<span>Voice ready</span>
+							<strong>{scene.voice.provider}</strong>
+							<audio src={scene.voice.generatedAudioUrl} preload="none">
 								<track kind="captions" />
 							</audio>
-						</div>
+						</button>
 					)}
 
 					<div className="subtitle-stack">
-						{scene.subtitles.lines.map((line) => (
+						{subtitleLines(scene).map((line) => (
 							<span key={line}>{line}</span>
 						))}
 					</div>
@@ -318,7 +345,7 @@ export function PhonePreview({
 							{secondsFromScenes(project.scenes, scene.index - 1).toFixed(2)} /{" "}
 							{project.brief.targetDuration.toFixed(0)}초
 						</span>
-						<span>{scene.role}</span>
+						<span>{prettyRole(scene.role)}</span>
 					</div>
 				</div>
 			</motion.article>
@@ -355,9 +382,9 @@ export function Timeline({
 					>
 						<div className="scene-chip__index">{scene.index}</div>
 						<div className="scene-chip__body">
-							<strong>{scene.text}</strong>
+							<strong>{sceneCopy(scene)}</strong>
 							<span>
-								{prettyRole(scene.role)} · {scene.media.query}
+								{prettyRole(scene.role)} · {displayValue(scene.media.query, "미디어 생성 대기")}
 							</span>
 						</div>
 						<div className="scene-chip__time">{scene.duration.toFixed(1)}s</div>
@@ -401,7 +428,7 @@ export function DetailCard({
 				{icon}
 				<span>{label}</span>
 			</div>
-			<strong>{value}</strong>
+			<strong>{displayValue(value, "입력 대기")}</strong>
 		</div>
 	);
 }
@@ -425,7 +452,7 @@ function MetricCard({ label, value }: { label: string; value: string }) {
 	return (
 		<div className="metric-card">
 			<span>{label}</span>
-			<strong>{value}</strong>
+			<strong>{displayValue(value, "입력 대기")}</strong>
 		</div>
 	);
 }
@@ -442,19 +469,32 @@ function FileRow({ name, description }: { name: string; description: string }) {
 	);
 }
 
+function displayValue(value: string, fallback: string): string {
+	return value.trim() || fallback;
+}
+
+function sceneCopy(scene: Scene): string {
+	return displayValue(scene.text, "제목을 입력하면 이 장면의 핵심 문장이 자동으로 채워집니다.");
+}
+
+function subtitleLines(scene: Scene): string[] {
+	const lines = scene.subtitles.lines.map((line) => line.trim()).filter(Boolean);
+	return lines.length ? lines : ["제목 입력 후 자막이 생성됩니다"];
+}
+
 function prettyRole(role: Scene["role"]): string {
-	if (role === "hook") return "Hook";
-	if (role === "build") return "Build";
-	if (role === "payoff") return "Payoff";
+	if (role === "hook") return "후킹";
+	if (role === "build") return "전개";
+	if (role === "payoff") return "전환점";
 	return "CTA";
 }
 
 function prettyQuantLabel(label: string): string {
 	const map: Record<string, string> = {
-		subtitleDensity: "Subtitle density",
-		sceneDuration: "Scene duration",
-		audioSync: "Audio sync",
-		cutFrequency: "Cut frequency",
+		subtitleDensity: "자막 밀도",
+		sceneDuration: "장면 길이",
+		audioSync: "음성 싱크",
+		cutFrequency: "컷 빈도",
 	};
 
 	return map[label] ?? label;

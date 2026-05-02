@@ -32,14 +32,27 @@ export function saveStockConfig(config: StockConfig): void {
 }
 
 export function hasStockProvider(): boolean {
+  return true;
+}
+
+export function hasConfiguredStockProvider(): boolean {
   const config = getStockConfig();
   return !!(config.pexelsApiKey.trim() || config.pixabayApiKey.trim());
 }
 
 export function getAvailableStockProviders(): StockProvider[] {
+  return getAvailableStockProvidersForMode();
+}
+
+export function getAvailableStockProvidersForMode(options?: {
+  includeNoKeyFallback?: boolean;
+}): StockProvider[] {
   const config = getStockConfig();
   const providers: StockProvider[] = [];
   if (config.pexelsApiKey.trim()) providers.push("pexels");
   if (config.pixabayApiKey.trim()) providers.push("pixabay");
+  if (options?.includeNoKeyFallback !== false) {
+    providers.push("commons", "picsum");
+  }
   return providers;
 }

@@ -13,9 +13,9 @@ describe("tabTitle", () => {
 
 describe("prettyQaLabel", () => {
 	it("maps known fields", () => {
-		expect(prettyQaLabel("overall")).toBe("Overall");
-		expect(prettyQaLabel("hookStrength")).toBe("Hook");
-		expect(prettyQaLabel("creatorPersona")).toBe("Persona");
+		expect(prettyQaLabel("overall")).toBe("전체 완성도");
+		expect(prettyQaLabel("hookStrength")).toBe("첫 장면 흡입력");
+		expect(prettyQaLabel("creatorPersona")).toBe("채널 톤");
 	});
 
 	it("returns input for unknown fields", () => {
@@ -25,16 +25,16 @@ describe("prettyQaLabel", () => {
 
 describe("prettyRole", () => {
 	it("maps each scene role", () => {
-		expect(prettyRole("hook")).toBe("Hook");
-		expect(prettyRole("build")).toBe("Build");
-		expect(prettyRole("payoff")).toBe("Payoff");
+		expect(prettyRole("hook")).toBe("후킹");
+		expect(prettyRole("build")).toBe("전개");
+		expect(prettyRole("payoff")).toBe("전환점");
 		expect(prettyRole("cta")).toBe("CTA");
 	});
 });
 
 describe("prettyQuantLabel", () => {
 	it("maps quantitative qa fields", () => {
-		expect(prettyQuantLabel("subtitleDensity")).toBe("Subtitle density");
-		expect(prettyQuantLabel("audioSync")).toBe("Audio sync");
+		expect(prettyQuantLabel("subtitleDensity")).toBe("자막 밀도");
+		expect(prettyQuantLabel("audioSync")).toBe("음성 싱크");
 	});
 });

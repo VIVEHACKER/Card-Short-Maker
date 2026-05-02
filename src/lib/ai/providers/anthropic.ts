@@ -34,11 +34,16 @@ export async function anthropicGenerateText(
 		body: {
 			model: "claude-sonnet-4-20250514",
 			max_tokens: 1024,
+			temperature: request.temperature ?? 0.7,
 			system: buildScriptSystemPrompt(request.language),
 			messages: [
 				{
 					role: "user",
-					content: buildScriptUserPrompt(request.brief, maxScenes),
+					content: buildScriptUserPrompt(
+						request.brief,
+						maxScenes,
+						request.variation,
+					),
 				},
 			],
 		},

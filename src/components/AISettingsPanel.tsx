@@ -7,7 +7,7 @@ import {
 	PROVIDER_CAPABILITIES,
 	PROVIDER_LABELS,
 } from "../lib/ai/types";
-import { getStockConfig, saveStockConfig } from "../lib/stock";
+import { getStockConfig, hasConfiguredStockProvider, saveStockConfig } from "../lib/stock";
 
 const PROVIDERS: AIProviderName[] = ["openai", "google", "anthropic"];
 const CAPABILITIES = ["text", "image", "tts"] as const;
@@ -35,6 +35,7 @@ export function AISettingsPanel({
 					</button>
 				</div>
 
+				<ReadinessSummary />
 				<ProviderKeySection />
 				<CapabilityAssignment />
 				<StockMediaSection />
@@ -64,6 +65,56 @@ function ProviderKeySection() {
 					onChange={(key) => updateApiKey(name, key)}
 				/>
 			))}
+		</div>
+	);
+}
+
+function ReadinessSummary() {
+	const { settings } = useAIConfig();
+	const configuredStockReady = hasConfiguredStockProvider();
+	const textReady = PROVIDERS.some(
+		(name) =>
+			PROVIDER_CAPABILITIES[name].text &&
+			settings.providers[name].apiKey.trim().length > 0,
+	);
+	const imageApiReady = PROVIDERS.some(
+		(name) =>
+			PROVIDER_CAPABILITIES[name].image &&
+			settings.providers[name].apiKey.trim().length > 0,
+	);
+	const imageReady = true;
+	const ttsReady = PROVIDERS.some(
+		(name) =>
+			PROVIDER_CAPABILITIES[name].tts &&
+			settings.providers[name].apiKey.trim().length > 0,
+	);
+
+	return (
+		<div className="ai-settings-health">
+			<div className="ai-settings-health__row">
+				<span>스크립트 생성</span>
+				<strong className={textReady ? "ai-key-ok" : "ai-key-warn"}>
+					{textReady ? "AI 키 준비됨" : "로컬 폴백 가능"}
+				</strong>
+			</div>
+			<div className="ai-settings-health__row">
+				<span>이미지 생성</span>
+				<strong className={imageReady ? "ai-key-ok" : "ai-key-warn"}>
+					{imageReady
+						? imageApiReady
+							? "AI 키 준비됨"
+							: configuredStockReady
+								? "스톡 키 준비됨"
+								: "로컬 비주얼 준비됨"
+						: "로컬 폴백 가능"}
+				</strong>
+			</div>
+			<div className="ai-settings-health__row">
+				<span>음성 생성</span>
+				<strong className={ttsReady ? "ai-key-ok" : "ai-key-warn"}>
+					{ttsReady ? "AI 키 준비됨" : "로컬 폴백 가능"}
+				</strong>
+			</div>
 		</div>
 	);
 }
@@ -217,9 +268,15 @@ function StockMediaSection() {
 				스톡 미디어 (무료)
 			</h3>
 			<p className="ai-settings-hint">
-				Pexels/Pixabay API 키를 입력하면 장면별 실사 이미지를 자동 검색합니다.
-				AI 이미지 생성보다 우선 적용됩니다.
+				키가 없어도 장면 의미를 읽어 로컬 SVG 비주얼을 생성합니다.
+				OpenAI/Google 키가 있으면 AI 이미지가 최우선이고, Pexels/Pixabay 키는 실사 보강용으로 사용됩니다.
 			</p>
+
+			<div className="ai-cap-badges">
+				<span className="ai-cap-badge ai-cap-badge--ok">의미 기반 SVG</span>
+				<span className="ai-cap-badge ai-cap-badge--ok">장면별 자동 생성</span>
+				<span className="ai-cap-badge ai-cap-badge--ok">API 키 불필요</span>
+			</div>
 
 			<div className="ai-key-row">
 				<div className="ai-key-row__label">

@@ -40,13 +40,13 @@ export async function googleGenerateText(
 					role: "user",
 					parts: [
 						{
-							text: `${buildScriptSystemPrompt(request.language)}\n\n${buildScriptUserPrompt(request.brief, maxScenes)}`,
+							text: `${buildScriptSystemPrompt(request.language)}\n\n${buildScriptUserPrompt(request.brief, maxScenes, request.variation)}`,
 						},
 					],
 				},
 			],
 			generationConfig: {
-				temperature: 0.7,
+				temperature: request.temperature ?? 0.7,
 				maxOutputTokens: 1024,
 			},
 		},

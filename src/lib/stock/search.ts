@@ -3,9 +3,14 @@ import type {
   StockSearchRequest,
   StockSearchResponse,
 } from "./types";
-import { getAvailableStockProviders } from "./config";
+import { getAvailableStockProvidersForMode } from "./config";
 import { searchPexelsPhotos, searchPexelsVideos } from "./pexels";
 import { searchPixabayPhotos, searchPixabayVideos } from "./pixabay";
+import { searchCommonsPhotos, searchPicsumPhotos } from "./no-key";
+
+interface StockSearchOptions {
+  includeNoKeyFallback?: boolean;
+}
 
 /**
  * Search across all configured stock providers.
@@ -14,8 +19,9 @@ import { searchPixabayPhotos, searchPixabayVideos } from "./pixabay";
 export async function searchStockMedia(
   request: StockSearchRequest,
   signal?: AbortSignal,
+  options?: StockSearchOptions,
 ): Promise<StockMedia[]> {
-  const providers = getAvailableStockProviders();
+  const providers = getAvailableStockProvidersForMode(options);
   if (providers.length === 0) return [];
 
   const searchType = request.type ?? "photo";
@@ -35,6 +41,10 @@ export async function searchStockMedia(
           ? searchPixabayVideos(request, signal)
           : searchPixabayPhotos(request, signal),
       );
+    } else if (provider === "commons") {
+      searches.push(searchCommonsPhotos(request, signal));
+    } else if (provider === "picsum") {
+      searches.push(searchPicsumPhotos(request));
     }
   }
 
@@ -58,6 +68,23 @@ export async function findBestStockImage(
   query: string,
   language?: string,
   signal?: AbortSignal,
+  options?: StockSearchOptions,
+): Promise<StockMedia | null> {
+  return findBestStockImageExcluding(
+    query,
+    language,
+    signal,
+    new Set<string>(),
+    options,
+  );
+}
+
+async function findBestStockImageExcluding(
+  query: string,
+  language?: string,
+  signal?: AbortSignal,
+  usedUrls = new Set<string>(),
+  options?: StockSearchOptions,
 ): Promise<StockMedia | null> {
   const results = await searchStockMedia(
     {
@@ -68,11 +95,17 @@ export async function findBestStockImage(
       language,
     },
     signal,
+    options,
   );
 
-  // Prefer portrait-oriented images
-  const portrait = results.find((r) => r.height > r.width);
-  return portrait ?? results[0] ?? null;
+  const unused = results.filter((result) => !usedUrls.has(result.url));
+  const candidates = unused.length ? unused : results;
+
+  const editorialCandidates = candidates.filter((result) => result.provider !== "picsum");
+  const editorialPortrait = editorialCandidates.find((result) => result.height > result.width);
+  const anyPortrait = candidates.find((result) => result.height > result.width);
+
+  return editorialPortrait ?? editorialCandidates[0] ?? anyPortrait ?? candidates[0] ?? null;
 }
 
 /**
@@ -84,12 +117,14 @@ export async function findStockImagesForScenes(
   signal?: AbortSignal,
   concurrency = 2,
   onProgress?: (completed: number, total: number) => void,
+  options?: StockSearchOptions,
 ): Promise<Array<StockMedia | null>> {
   const results: Array<StockMedia | null> = new Array(queries.length).fill(
     null,
   );
   let completed = 0;
   let index = 0;
+  const usedUrls = new Set<string>();
 
   async function worker() {
     while (index < queries.length) {
@@ -98,11 +133,17 @@ export async function findStockImagesForScenes(
       const { query, language } = queries[currentIndex]!;
 
       try {
-        results[currentIndex] = await findBestStockImage(
+        const result = await findBestStockImageExcluding(
           query,
           language,
           signal,
+          usedUrls,
+          options,
         );
+        results[currentIndex] = result;
+        if (result?.url) {
+          usedUrls.add(result.url);
+        }
       } catch {
         results[currentIndex] = null;
       }
@@ -117,6 +158,35 @@ export async function findStockImagesForScenes(
     () => worker(),
   );
   await Promise.all(workers);
+
+  const seenUrls = new Set<string>();
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i];
+    if (!result?.url) continue;
+
+    if (!seenUrls.has(result.url)) {
+      seenUrls.add(result.url);
+      continue;
+    }
+
+    const fallback =
+      options?.includeNoKeyFallback === false
+        ? null
+        : (
+            await searchPicsumPhotos({
+              query: `${queries[i]?.query ?? "shorts"} scene ${i + 1}`,
+              orientation: "portrait",
+              type: "photo",
+              perPage: 1,
+              language: queries[i]?.language,
+            })
+          ).results[0];
+
+    if (fallback) {
+      results[i] = fallback;
+      seenUrls.add(fallback.url);
+    }
+  }
 
   return results;
 }

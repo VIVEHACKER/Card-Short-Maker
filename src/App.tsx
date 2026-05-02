@@ -81,17 +81,19 @@ import {
 } from "./lib/pipeline";
 import { buildRenderPackage } from "./lib/render-package";
 import { buildAutoDraftFromTitle } from "./lib/title-autofill";
-import { useAIConfig } from "./hooks/useAIConfig";
 import { useAIPipeline } from "./hooks/useAIPipeline";
 import { getAvailableProviders } from "./lib/ai/registry";
+import { hasConfiguredStockProvider } from "./lib/stock";
+import { generateImage } from "./lib/ai/capabilities/image-generation";
+import type { GenerationVariationProfile, VariationStrength } from "./lib/ai/types";
 import type { Brief, ExecutionMode, RenderPackage, SceneRole, ShortsProject } from "./types";
 
 const NAV_TABS: Array<{ key: TabKey; label: string }> = [
-  { key: "brief", label: "Brief" },
-  { key: "editor", label: "Editor" },
-  { key: "review", label: "Review" },
-  { key: "drafts", label: "Drafts" },
-  { key: "export", label: "Export" },
+  { key: "brief", label: "입력" },
+  { key: "editor", label: "편집" },
+  { key: "review", label: "검수" },
+  { key: "drafts", label: "초안" },
+  { key: "export", label: "내보내기" },
 ];
 
 const PIPELINE_STAGES = [
@@ -117,13 +119,14 @@ function App() {
   const [draftScript, setDraftScript] = useState(projects[0]?.script ?? "");
   const [draftMode, setDraftMode] = useState<ExecutionMode>(projects[0]?.runtime.mode ?? "local");
   const [notice, setNotice] = useState("");
+  const [variationStrength, setVariationStrength] = useState<VariationStrength>("fresh");
+  const [generationAttempt, setGenerationAttempt] = useState(0);
   const [showAISettings, setShowAISettings] = useState(false);
   const trackedObjectUrlsRef = useRef<Set<string>>(new Set());
 
   const projectImportRef = useRef<HTMLInputElement>(null);
   const briefImportRef = useRef<HTMLInputElement>(null);
 
-  const { hasAnyProvider } = useAIConfig();
   const { generate: aiGenerate, cancel: aiCancel, progress: aiProgress, isGenerating } = useAIPipeline();
   const { errors: structuredErrors, push: pushError, dismiss: dismissError } = useErrors();
 
@@ -151,6 +154,7 @@ function App() {
     setDraftBrief(activeProject.brief);
     setDraftScript(activeProject.script);
     setDraftMode(activeProject.runtime.mode);
+    setGenerationAttempt(0);
     setActiveSceneId(activeProject.scenes[0]?.id ?? "");
     // Intentionally only react to project *selection* changes. Within-project edits
     // are tracked separately via `commitProject` and must not bulldoze draft state.
@@ -300,6 +304,10 @@ function App() {
   }
 
   const accentStyle = { "--accent": activeProject.accent } as CSSProperties;
+  const activeTitle = activeProject.brief.title.trim() || "제목을 입력하면 숏츠가 구성됩니다";
+  const sceneTotalDuration = activeProject.scenes.reduce((sum, scene) => sum + scene.duration, 0);
+  const mediaReadyCount = activeProject.scenes.filter((scene) => scene.media.generatedImageUrl).length;
+  const voiceReadyCount = activeProject.scenes.filter((scene) => scene.voice.generatedAudioUrl).length;
 
   function commitProject(nextProject: ShortsProject, preferredSceneId?: string) {
     setProjects((current) =>
@@ -328,45 +336,61 @@ function App() {
 
     const autoDraft = buildAutoDraftFromTitle(title, draftBrief);
     setDraftBrief(autoDraft.brief);
-    // P2 fix: 기존 스크립트를 빈 문자열로 덮어쓰지 않음 — AI 성공 후에만 교체
     if (autoDraft.script) {
       setDraftScript(autoDraft.script);
     }
 
-    // 브리프 채움 후 AI 파이프라인 자동 실행
-    runAIGenerate(autoDraft.brief).catch((error) => {
-      console.error("[handleTitleAutofill] 미처리 에러:", error);
-      setNotice(`AI 생성 실패: ${error instanceof Error ? error.message : String(error)}`);
+    const localProject = createProjectFromBrief(autoDraft.brief, autoDraft.script, {
+      id: activeProject.id,
+      accent: activeProject.accent,
+      channel: activeProject.channel,
+      preset: activeProject.preset,
+      runtimeMode: draftMode,
     });
+    commitProject(localProject);
+    setActiveTab("editor");
+    setNotice("제목 기반으로 브리프, 스크립트, 장면을 채웠습니다.");
   }
 
-  async function runAIGenerate(briefOverride?: Brief) {
+  async function runAIGenerate(briefOverride?: Brief, options?: { regenerate?: boolean }) {
     const imageProviders = getAvailableProviders("image");
     const textProviders = getAvailableProviders("text");
-    console.log("[runAIGenerate]", { hasAnyProvider, textProviders, imageProviders, isGenerating });
-
-    if (!hasAnyProvider) {
-      setShowAISettings(true);
-      setNotice("AI 생성을 하려면 API 키를 먼저 설정해 주세요.");
-      return;
-    }
-
-    if (imageProviders.length === 0) {
-      setShowAISettings(true);
-      setNotice("이미지 생성용 API 키가 없습니다. OpenAI 또는 Google 키를 설정해 주세요.");
-      return;
-    }
 
     if (isGenerating) {
       setNotice("이미 생성이 진행 중입니다.");
       return;
     }
 
+    const canUseStock = hasConfiguredStockProvider();
+    const setupWarnings: string[] = [];
+    if (textProviders.length === 0) {
+      setupWarnings.push("스크립트는 로컬 생성");
+    }
+    if (imageProviders.length === 0 && !canUseStock) {
+      setupWarnings.push("이미지는 의미 기반 로컬 비주얼");
+    }
+    if (setupWarnings.length > 0) {
+      setNotice(`${setupWarnings.join(" · ")}로 진행합니다. 키 없이도 완성 가능한 장면별 비주얼을 생성합니다.`);
+    }
+
     const baseBrief = briefOverride ?? draftBrief;
     const normalizedTitle = baseBrief.title.trim();
+    const attempt = options?.regenerate ? generationAttempt + 1 : 1;
+    const variation: GenerationVariationProfile = {
+      attempt,
+      strength: variationStrength,
+      seed: `${(normalizedTitle || baseBrief.topic || "shorts").slice(0, 24)}-${attempt}-${Date.now().toString(36)}`,
+    };
+    const normalizedTopic = baseBrief.topic.replace(/\s+/g, " ").trim();
+    const normalizedTopicFromTitle = normalizedTitle.replace(/\s+/g, " ").trim();
     const shouldEnrichBrief =
       normalizedTitle.length > 0 &&
-      (!baseBrief.topic.trim() || !baseBrief.audience.trim() || !baseBrief.thesis.trim());
+      (
+        normalizedTopic !== normalizedTopicFromTitle ||
+        !baseBrief.topic.trim() ||
+        !baseBrief.audience.trim() ||
+        !baseBrief.thesis.trim()
+      );
     const effectiveBrief = shouldEnrichBrief
       ? buildAutoDraftFromTitle(normalizedTitle, baseBrief).brief
       : baseBrief;
@@ -382,23 +406,28 @@ function App() {
         channel: activeProject.channel,
         preset: activeProject.preset,
         runtimeMode: draftMode,
+        bypassScriptCache: true,
+        variation,
       });
 
       setDraftScript(result.project.script);
+      setGenerationAttempt(attempt);
       commitProject(result.project);
       setActiveProjectId(result.project.id);
       setActiveTab("editor");
 
       const sceneTotal = result.project.scenes.length;
       const statusParts = [
-        `이미지 ${result.imageSuccessCount}/${sceneTotal}`,
+        `이미지 ${result.imageSuccessCount}/${sceneTotal}${result.imageFallbackCount ? ` (로컬 ${result.imageFallbackCount})` : ""}`,
         `음성 ${result.ttsSuccessCount}/${sceneTotal}`,
       ];
       const firstError = result.errors[0] ?? "";
       const errorSummary = firstError
         ? ` — ${firstError}`
         : "";
-      setNotice(`${result.scriptProvider} 생성 완료 · ${statusParts.join(" · ")}${errorSummary}`);
+      const variationLabel =
+        variationStrength === "wild" ? "WILD" : variationStrength === "fresh" ? "FRESH" : "BALANCED";
+      setNotice(`${result.scriptProvider} 생성 완료 · ${statusParts.join(" · ")} · ${variationLabel} ${attempt}회차${errorSummary}`);
 
       for (const partialError of result.errors) {
         pushError({
@@ -419,8 +448,8 @@ function App() {
     }
   }
 
-  function handleAIGenerate() {
-    runAIGenerate().catch((error) => {
+  function handleAIGenerate(options?: { regenerate?: boolean }) {
+    runAIGenerate(undefined, options).catch((error) => {
       setNotice(`AI 생성 실패: ${error instanceof Error ? error.message : String(error)}`);
     });
   }
@@ -432,7 +461,7 @@ function App() {
     const lines = [`프로바이더: text=${textP.join(",") || "없음"} | image=${imageP.join(",") || "없음"} | tts=${ttsP.join(",") || "없음"}`];
 
     if (imageP.length === 0) {
-      lines.push("이미지 프로바이더 없음 — OpenAI 또는 Google 키를 설정하세요");
+      lines.push("AI 이미지 프로바이더 없음 — 자동 생성은 의미 기반 로컬 비주얼로 처리됩니다");
       setNotice(lines.join("\n"));
       return;
     }
@@ -441,7 +470,6 @@ function App() {
     setNotice(lines.join(" | "));
 
     try {
-      const { generateImage } = await import("./lib/ai/capabilities/image-generation");
       const result = await generateImage({
         prompt: "simple blue gradient background",
         style: "minimal clean",
@@ -645,6 +673,14 @@ function App() {
 
       <aside className="sidebar">
         <div className="sidebar__top">
+          <div className="brand-mark">
+            <span>CS</span>
+            <div>
+              <strong>Card Short Maker</strong>
+              <em>카드형 숏츠 제작실</em>
+            </div>
+          </div>
+
           <button className="new-reel" type="button" onClick={handleCreateProject}>
             <Sparkles size={16} />
             새 Reel
@@ -673,33 +709,41 @@ function App() {
         </div>
 
         <div className="sidebar__list">
-          {filteredProjects.map((project) => (
-            <button
-              key={project.id}
-              className={`project-card ${project.id === activeProject.id ? "project-card--active" : ""}`}
-              type="button"
-              onClick={() => setActiveProjectId(project.id)}
-            >
-              <div className="project-card__status">
-                <span className={`status-dot status-dot--${project.status}`} />
-                <span>{project.status}</span>
-                <span>{project.updatedAt}</span>
-              </div>
-              <strong>{project.brief.title}</strong>
-              <span>{project.brief.targetDuration}초 숏츠</span>
-            </button>
-          ))}
+          {filteredProjects.length ? (
+            filteredProjects.map((project) => (
+              <button
+                key={project.id}
+                className={`project-card ${project.id === activeProject.id ? "project-card--active" : ""}`}
+                type="button"
+                onClick={() => setActiveProjectId(project.id)}
+                aria-current={project.id === activeProject.id ? "true" : undefined}
+              >
+                <div className="project-card__status">
+                  <span className={`status-dot status-dot--${project.status}`} />
+                  <span>{project.status}</span>
+                  <span>{project.updatedAt}</span>
+                </div>
+                <strong>{project.brief.title.trim() || "제목 없는 Reel"}</strong>
+                <span>{project.scenes.length}장면 · {project.brief.targetDuration}초</span>
+              </button>
+            ))
+          ) : (
+            <div className="sidebar-empty">
+              <strong>검색 결과 없음</strong>
+              <span>다른 제목이나 스크립트 단어로 찾아보세요.</span>
+            </div>
+          )}
         </div>
       </aside>
 
       <main className="main-shell">
         <header className="topbar">
-          <div>
+          <div className="topbar__title">
             <div className="eyebrow">
               <Workflow size={14} />
-              Card Short Maker
+              Shorts Studio
             </div>
-            <h1>{activeProject.brief.title}</h1>
+            <h1>{activeTitle}</h1>
           </div>
 
           <nav className="tabs" aria-label="주요 탭">
@@ -709,20 +753,52 @@ function App() {
                 className={`tabs__item ${tab.key === activeTab ? "tabs__item--active" : ""}`}
                 type="button"
                 onClick={() => setActiveTab(tab.key)}
+                aria-current={tab.key === activeTab ? "page" : undefined}
               >
                 {tab.label}
               </button>
             ))}
           </nav>
 
-          <div className="topbar__meta">
-            <span>Ready</span>
-            <strong>{activeProject.readiness}%</strong>
+          <div className="topbar__meta" aria-label="프로젝트 상태">
+            <div className="status-meter">
+              <span>완성도</span>
+              <strong>{activeProject.readiness}%</strong>
+            </div>
             <button className="ghost-button ghost-button--small" type="button" onClick={() => setShowAISettings(true)} aria-label="AI 설정">
               <Settings size={15} />
             </button>
           </div>
         </header>
+
+        <section className="command-strip" aria-label="작업 요약">
+          <div className="command-strip__stat">
+            <span>장면</span>
+            <strong>{activeProject.scenes.length}</strong>
+          </div>
+          <div className="command-strip__stat">
+            <span>타임라인</span>
+            <strong>{sceneTotalDuration.toFixed(1)}s</strong>
+          </div>
+          <div className="command-strip__stat">
+            <span>이미지</span>
+            <strong>{mediaReadyCount}/{activeProject.scenes.length}</strong>
+          </div>
+          <div className="command-strip__stat">
+            <span>음성</span>
+            <strong>{voiceReadyCount}/{activeProject.scenes.length}</strong>
+          </div>
+          <div className="command-strip__actions">
+            <button className="ghost-button ghost-button--small" type="button" onClick={() => setShowAISettings(true)}>
+              <Settings size={14} />
+              설정
+            </button>
+            <button className="ai-generate-button ai-generate-button--compact" type="button" onClick={() => handleAIGenerate()} disabled={isGenerating}>
+              <Zap size={14} />
+              생성
+            </button>
+          </div>
+        </section>
 
         <AnimatePresence>
           {notice ? (
@@ -741,28 +817,54 @@ function App() {
           <section className="panel brief-pane">
             <div className="panel__header">
               <div>
-                <p>브리프 입력</p>
-                <h2>스크립트와 기준 설계</h2>
+                <p>Step 1</p>
+                <h2>제목에서 장면까지</h2>
               </div>
               <div className="brief-actions">
                 <button className="ghost-button" type="button" onClick={handleDiagnose} disabled={isGenerating}>
                   <Search size={15} />
                   진단
                 </button>
-                <button className="ai-generate-button" type="button" onClick={handleAIGenerate} disabled={isGenerating}>
+                <select
+                  className="ghost-select"
+                  value={variationStrength}
+                  onChange={(event) => setVariationStrength(event.target.value as VariationStrength)}
+                  disabled={isGenerating}
+                  aria-label="변주 강도"
+                >
+                  <option value="balanced">변주 안정</option>
+                  <option value="fresh">변주 강화</option>
+                  <option value="wild">변주 최대</option>
+                </select>
+                <button className="ai-generate-button" type="button" onClick={() => handleAIGenerate()} disabled={isGenerating}>
                   <Zap size={15} />
                   AI 생성
+                </button>
+                <button
+                  className="ghost-button"
+                  type="button"
+                  onClick={() => handleAIGenerate({ regenerate: true })}
+                  disabled={isGenerating || !draftBrief.title.trim()}
+                >
+                  <Sparkles size={15} />
+                  다시 생성
                 </button>
               </div>
             </div>
 
             <div className="panel__content panel__content--form">
+              <div className="brief-focus-card">
+                <span>현재 기준</span>
+                <strong>{draftBrief.thesis || "제목을 입력하면 핵심 논지가 자동으로 잡힙니다."}</strong>
+              </div>
+
               <label className="field">
                 <span>제목</span>
                 <div className="field-input-action">
                   <input
                     value={draftBrief.title}
                     onChange={(event) => setDraftBrief((current) => ({ ...current, title: event.target.value }))}
+                    onBlur={(event) => handleTitleAutofill(event.currentTarget.value, { force: true })}
                     onKeyDown={(event) => {
                       if (event.key === "Enter") {
                         event.preventDefault();
@@ -771,7 +873,7 @@ function App() {
                     }}
                   />
                   <button
-                    className="ghost-button ghost-button--small"
+                    className="ghost-button ghost-button--small field-action-button"
                     type="button"
                     onClick={() => handleTitleAutofill(draftBrief.title, { force: true })}
                     disabled={!draftBrief.title.trim()}
@@ -798,10 +900,10 @@ function App() {
                       setDraftBrief((current) => ({ ...current, tone: event.target.value as Brief["tone"] }))
                     }
                   >
-                    <option value="serious">serious</option>
-                    <option value="neutral">neutral</option>
-                    <option value="energetic">energetic</option>
-                    <option value="urgent">urgent</option>
+                    <option value="serious">진지한 톤</option>
+                    <option value="neutral">균형 톤</option>
+                    <option value="energetic">활기찬 톤</option>
+                    <option value="urgent">긴급 톤</option>
                   </select>
                 </label>
 
@@ -813,9 +915,9 @@ function App() {
                       setDraftBrief((current) => ({ ...current, platform: event.target.value as Brief["platform"] }))
                     }
                   >
-                    <option value="youtube">youtube</option>
-                    <option value="tiktok">tiktok</option>
-                    <option value="reels">reels</option>
+                    <option value="youtube">YouTube Shorts</option>
+                    <option value="tiktok">TikTok</option>
+                    <option value="reels">Instagram Reels</option>
                   </select>
                 </label>
               </div>
@@ -842,9 +944,9 @@ function App() {
                       setDraftBrief((current) => ({ ...current, intent: event.target.value as Brief["intent"] }))
                     }
                   >
-                    <option value="info">info</option>
-                    <option value="opinion">opinion</option>
-                    <option value="story">story</option>
+                    <option value="info">정보 전달</option>
+                    <option value="opinion">의견 / 관점</option>
+                    <option value="story">스토리</option>
                   </select>
                 </label>
               </div>
@@ -852,9 +954,9 @@ function App() {
               <label className="field">
                 <span>실행 모드</span>
                 <select value={draftMode} onChange={(event) => handleRuntimeModeChange(event.target.value as ExecutionMode)}>
-                  <option value="local">local</option>
-                  <option value="byo-api">byo-api</option>
-                  <option value="hybrid">hybrid</option>
+                  <option value="local">로컬 생성</option>
+                  <option value="byo-api">내 API 사용</option>
+                  <option value="hybrid">하이브리드</option>
                 </select>
               </label>
 
@@ -882,10 +984,11 @@ function App() {
             </div>
 
             <div className="pipeline-rail">
-              {PIPELINE_STAGES.map((stage) => (
+              {PIPELINE_STAGES.map((stage, index) => (
                 <div key={stage} className="pipeline-rail__item">
+                  <em>{String(index + 1).padStart(2, "0")}</em>
                   <span>{stage}</span>
-                  <strong>{stage === "렌더 패키지" ? "ready" : "live"}</strong>
+                  <strong>{index < 3 ? "setup" : index < 6 ? "asset" : "final"}</strong>
                 </div>
               ))}
             </div>
@@ -894,7 +997,7 @@ function App() {
           <section className="panel stage-pane">
             <div className="panel__header">
               <div>
-                <p>워크스페이스</p>
+                <p>Step 2</p>
                 <h2>{tabTitle(activeTab)}</h2>
               </div>
               <div className="stage-actions">
@@ -936,7 +1039,7 @@ function App() {
                   <div className="panel__header panel__header--inner">
                     <div>
                       <p>브리프 진단</p>
-                      <h2>콘텐츠 기준점</h2>
+                      <h2>기준점</h2>
                     </div>
                     <span className="meta-pill">{activeProject.brief.targetDuration}s</span>
                   </div>
@@ -977,7 +1080,7 @@ function App() {
                   <div className="panel__header panel__header--inner">
                     <div>
                       <p>리뷰</p>
-                      <h2>QA 점수와 피드백</h2>
+                      <h2>QA와 보완점</h2>
                     </div>
                     <span className={`verdict-pill verdict-pill--${activeProject.qa.verdict}`}>
                       {activeProject.qa.verdict.toUpperCase()}
@@ -1025,7 +1128,7 @@ function App() {
                   <div className="panel__header panel__header--inner">
                     <div>
                       <p>익스포트</p>
-                      <h2>패키지 미리보기</h2>
+                      <h2>렌더 패키지</h2>
                     </div>
                     <button className="ghost-button" type="button" onClick={handleDownloadRenderPackage}>
                       <Download size={15} />
@@ -1094,10 +1197,10 @@ function App() {
                     <label className="field">
                       <span>역할</span>
                       <select value={activeScene.role} onChange={(event) => handleRoleChange(event.target.value as SceneRole)}>
-                        <option value="hook">hook</option>
-                        <option value="build">build</option>
-                        <option value="payoff">payoff</option>
-                        <option value="cta">cta</option>
+                        <option value="hook">후킹</option>
+                        <option value="build">전개</option>
+                        <option value="payoff">전환점</option>
+                        <option value="cta">CTA</option>
                       </select>
                     </label>
 

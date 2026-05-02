@@ -17,11 +17,21 @@ export interface AISettings {
 	ttsProvider: AIProviderName | "auto";
 }
 
+export type VariationStrength = "balanced" | "fresh" | "wild";
+
+export interface GenerationVariationProfile {
+	seed: string;
+	attempt: number;
+	strength: VariationStrength;
+}
+
 // --- Text Generation ---
 export interface TextGenerationRequest {
 	brief: Brief;
 	language: Language;
 	maxScenes?: number;
+	variation?: GenerationVariationProfile;
+	temperature?: number;
 }
 
 export interface TextGenerationResponse {
@@ -36,6 +46,7 @@ export interface ImageGenerationRequest {
 	style: string;
 	aspectRatio: "9:16";
 	sceneRole: SceneRole;
+	variation?: GenerationVariationProfile;
 }
 
 export interface ImageGenerationResponse {

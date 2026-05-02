@@ -5,7 +5,7 @@ import type { PipelineProgress } from "../lib/ai/types";
 const STAGE_LABELS: Record<string, string> = {
 	"generating-script": "스크립트 생성",
 	"searching-stock": "스톡 이미지 검색",
-	"generating-images": "AI 이미지 생성",
+	"generating-images": "이미지/비주얼 생성",
 	"generating-tts": "음성 생성",
 	finalizing: "마무리",
 };

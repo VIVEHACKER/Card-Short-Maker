@@ -174,7 +174,7 @@ function hydrateScene(raw: unknown, index: number, brief: Brief): Scene | null {
 				voice: {
 					provider: stringField(
 						voiceRaw.provider,
-						"TTS placeholder",
+						"TTS pending",
 					),
 					speed: numberField(voiceRaw.speed, 1),
 					emotion: unionField(
@@ -192,10 +192,10 @@ function hydrateScene(raw: unknown, index: number, brief: Brief): Scene | null {
 		const savedImageUrl = stringField(mediaRaw.generatedImageUrl, "");
 		const savedAudioUrl = stringField(voiceRaw.generatedAudioUrl, "");
 
-		if (savedImageUrl) {
+		if (savedImageUrl && !isVolatileObjectUrl(savedImageUrl)) {
 			refreshed.media.generatedImageUrl = savedImageUrl;
 		}
-		if (savedAudioUrl) {
+		if (savedAudioUrl && !isVolatileObjectUrl(savedAudioUrl)) {
 			refreshed.voice.generatedAudioUrl = savedAudioUrl;
 		}
 
@@ -259,4 +259,8 @@ function arrayOfStrings(value: unknown): string[] {
 	return Array.isArray(value)
 		? value.filter((item): item is string => typeof item === "string")
 		: [];
+}
+
+function isVolatileObjectUrl(value: string): boolean {
+	return value.startsWith("blob:");
 }

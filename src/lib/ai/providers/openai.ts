@@ -60,11 +60,15 @@ export async function openaiGenerateText(
 						},
 						{
 							role: "user",
-							content: buildScriptUserPrompt(request.brief, maxScenes),
+							content: buildScriptUserPrompt(
+								request.brief,
+								maxScenes,
+								request.variation,
+							),
 						},
 					],
 					max_tokens: 1024,
-					temperature: 0.7,
+					temperature: request.temperature ?? 0.7,
 				},
 				signal,
 				timeoutMs: 30_000,
@@ -105,20 +109,20 @@ export async function openaiGenerateImage(
 	signal?: AbortSignal,
 ): Promise<ImageGenerationResponse> {
 	const prompt = buildImagePrompt(request);
-	const models = ["gpt-image-1", "dall-e-3"] as const;
+	const models = ["gpt-image-1.5", "gpt-image-1", "dall-e-3"] as const;
 	let lastError: unknown = null;
 
 	for (const model of models) {
 		try {
 			const body: Record<string, unknown> =
-				model === "gpt-image-1"
-					? { model, prompt, n: 1, size: "1024x1536" }
+				model.startsWith("gpt-image")
+					? { model, prompt, n: 1, size: "1024x1536", quality: "high" }
 					: {
 							model,
 							prompt,
 							n: 1,
 							size: "1024x1792",
-							quality: "standard",
+							quality: "hd",
 							response_format: "b64_json",
 						};
 
